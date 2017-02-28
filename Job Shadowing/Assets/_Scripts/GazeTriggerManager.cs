@@ -18,4 +18,14 @@ public class GazeTriggerManager : MonoBehaviour
     {
         
     }
+
+    public bool IsAllTrigerInteracted()
+    {
+        foreach (var gazeTrigger in gazeTriggers)
+        {
+            if (!gazeTrigger.Interacted)
+                return false;
+        }
+        return true;
+    }
 }

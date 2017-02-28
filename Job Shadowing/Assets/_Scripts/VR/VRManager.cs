@@ -10,10 +10,6 @@ public class VRManager : MonoBehaviour
 
     public static VRManager Instance { private set; get; }
 
-    private VRManager()
-    {        
-    }
-
     private void Awake()
     {
         if(Instance == null)

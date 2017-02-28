@@ -42,7 +42,7 @@ public class GazeTrigger : MonoBehaviour
             VRManager.Instance.SelectionRadial.selectionImage.fillAmount = gazeTimer / gazeDuration;
 
             if (gazeTimer >= gazeDuration)
-            {                
+            {
                 gazeTimer = 0;
                 Interacted = true;
                 Gazing = false;
@@ -53,7 +53,7 @@ public class GazeTrigger : MonoBehaviour
 
                 if (OnGazeComplete != null)
                     OnGazeComplete.Invoke();
-            }                        
+            }
         }
         else
         {

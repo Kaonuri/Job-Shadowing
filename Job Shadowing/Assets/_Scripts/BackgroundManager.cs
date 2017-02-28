@@ -1,7 +1,7 @@
 ﻿using RenderHeads.Media.AVProVideo;
 using UnityEngine;
 
-public class MonitorManager : MonoBehaviour
+public class BackgroundManager : MonoBehaviour
 {
     public MediaPlayer _mediaPlayer;
 
@@ -17,21 +17,13 @@ public class MonitorManager : MonoBehaviour
             case MediaPlayerEvent.EventType.ReadyToPlay:
                 break;
             case MediaPlayerEvent.EventType.Started:
-                GameManager.Instance.GazeTriggerManager.gameObject.SetActive(false);
                 break;
             case MediaPlayerEvent.EventType.FirstFrameReady:
                 break;
             case MediaPlayerEvent.EventType.MetaDataReady:
                 break;
             case MediaPlayerEvent.EventType.FinishedPlaying:
-                {
-                    GameManager.Instance.GazeTriggerManager.gameObject.SetActive(true);
-                    _mediaPlayer.CloseVideo();
-                    if (GameManager.Instance.GazeTriggerManager.IsAllTrigerInteracted())
-                    {
-                        GameManager.Instance.readyToEnding = true;
-                    }
-                }                
+                _mediaPlayer.CloseVideo();
                 break;
         }
     }

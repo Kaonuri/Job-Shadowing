@@ -42,7 +42,7 @@ public class GameManager : MonoBehaviour
         {
             case Flow.Intro:
                 {
-                    if (BackgroundManager._mediaPlayer.Control.GetCurrentTimeMs() >= 5000f)
+                    if (BackgroundManager._mediaPlayer.Control.GetCurrentTimeMs() >= 90000f)
                     {
                         BackgroundManager._mediaPlayer.Control.Pause();
                         GazeTriggerManager.gameObject.SetActive(true);
@@ -62,6 +62,10 @@ public class GameManager : MonoBehaviour
                 break;
             case Flow.Ending:
                 {
+                    if (BackgroundManager._mediaPlayer.Control.IsFinished())
+                    {
+                        currentFlow = Flow.None;
+                    }
                 }
                 break;
 

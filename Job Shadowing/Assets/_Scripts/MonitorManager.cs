@@ -3,11 +3,13 @@ using UnityEngine;
 
 public class MonitorManager : MonoBehaviour
 {
-    public MediaPlayer _mediaPlayer;
+    public MediaPlayer mediaPlayer;
+    public CanvasGroup canvasGroup;
 
     private void Awake()
     {
-        _mediaPlayer.Events.AddListener(OnMediaPlayerEvent);
+        mediaPlayer.Events.AddListener(OnMediaPlayerEvent);
+        canvasGroup.alpha = 0f;
     }
 
     public void OnMediaPlayerEvent(MediaPlayer mediaPlayer, MediaPlayerEvent.EventType eventType, ErrorCode errorCode)
@@ -17,6 +19,7 @@ public class MonitorManager : MonoBehaviour
             case MediaPlayerEvent.EventType.ReadyToPlay:
                 break;
             case MediaPlayerEvent.EventType.Started:
+                canvasGroup.alpha = 1f;
                 GameManager.Instance.GazeTriggerManager.gameObject.SetActive(false);
                 break;
             case MediaPlayerEvent.EventType.FirstFrameReady:
@@ -26,11 +29,12 @@ public class MonitorManager : MonoBehaviour
             case MediaPlayerEvent.EventType.FinishedPlaying:
                 {
                     GameManager.Instance.GazeTriggerManager.gameObject.SetActive(true);
-                    _mediaPlayer.CloseVideo();
+                    mediaPlayer.CloseVideo();
                     if (GameManager.Instance.GazeTriggerManager.IsAllTrigerInteracted())
                     {
                         GameManager.Instance.readyToEnding = true;
                     }
+                    canvasGroup.alpha = 0f;
                 }                
                 break;
         }
@@ -38,7 +42,7 @@ public class MonitorManager : MonoBehaviour
 
     public void LoadVideo(string filePath)
     {
-        if (!_mediaPlayer.OpenVideoFromFile(MediaPlayer.FileLocation.RelativeToStreamingAssetsFolder, filePath, _mediaPlayer.m_AutoStart))
+        if (!mediaPlayer.OpenVideoFromFile(MediaPlayer.FileLocation.RelativeToStreamingAssetsFolder, filePath, mediaPlayer.m_AutoStart))
         {
             Debug.LogError("Failed to open video!");
         }

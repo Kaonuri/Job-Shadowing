@@ -2,6 +2,7 @@
 
 public enum Flow
 {
+    Connect,
     Intro,
     Interact,
     Ending,
@@ -34,7 +35,7 @@ public class GameManager : MonoBehaviour
 
     private void Start()
     {
-        currentFlow = Flow.Intro;
+        currentFlow = Flow.Connect;
         GazeTriggerManager.gameObject.SetActive(false);
     }
 
@@ -42,6 +43,16 @@ public class GameManager : MonoBehaviour
     {
         switch (currentFlow)
         {
+            case Flow.Connect:
+                {
+                    if (AirVRCameraRig.isBoundToClient)
+                    {
+                        BackgroundManager._mediaPlayer.Control.Play();
+                        currentFlow = Flow.Intro;
+                    }
+                }
+                break;
+
             case Flow.Intro:
                 {
                     if (Input.GetKeyDown(KeyCode.RightArrow))

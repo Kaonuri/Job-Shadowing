@@ -3,7 +3,7 @@ using UnityEngine;
 
 public class GazeTriggerManager : MonoBehaviour
 {
-    private List<GazeTrigger> gazeTriggers = new List<GazeTrigger>();
+    [SerializeField] private List<GazeTrigger> gazeTriggers = new List<GazeTrigger>();
     private float currentTime = 0;
 
     private void Awake()
@@ -14,16 +14,11 @@ public class GazeTriggerManager : MonoBehaviour
         }        
     }
 
-    private void Update()
-    {
-        
-    }
-
     public bool IsAllTrigerInteracted()
     {
         foreach (var gazeTrigger in gazeTriggers)
         {
-            if (!gazeTrigger.Interacted)
+            if (!gazeTrigger.interacted)
                 return false;
         }
         return true;

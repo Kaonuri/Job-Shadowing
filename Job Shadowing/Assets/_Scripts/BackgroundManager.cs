@@ -1,5 +1,6 @@
 ﻿using RenderHeads.Media.AVProVideo;
 using UnityEngine;
+using UnityEngine.SceneManagement;
 
 public class BackgroundManager : MonoBehaviour
 {

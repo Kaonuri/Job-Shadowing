@@ -10,19 +10,19 @@ public class GazeTrigger : MonoBehaviour
     private float gazeTimer = 0f;
 
     public GameObject sphere;
+    public bool interacted;
 
     public UnityEvent OnGazeStart;
     public UnityEvent OnGazeCancel;
     public UnityEvent OnGazeComplete;
 
     public bool Gazing { set; get; }
-    public bool Interacted  { set; get;}
     public float SphereRadius { set; get; }
 
     private void Awake()
     {        
         Gazing = false;
-        Interacted = false;
+        interacted = false;
         SphereRadius = sphere.GetComponent<MeshFilter>().sharedMesh.bounds.size.x / 2.0f * sphere.transform.localScale.x;
     }
 
@@ -44,7 +44,7 @@ public class GazeTrigger : MonoBehaviour
             if (gazeTimer >= gazeDuration)
             {
                 gazeTimer = 0;
-                Interacted = true;
+                interacted = true;
                 Gazing = false;
 
                 VRManager.Instance.SelectionRadial.Hide();

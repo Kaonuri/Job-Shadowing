@@ -12,6 +12,14 @@ public class MonitorManager : MonoBehaviour
         canvasGroup.alpha = 0f;
     }
 
+    private void Update()
+    {
+        if (mediaPlayer.Control.IsPlaying() && Input.GetKeyDown(KeyCode.RightArrow))
+        {
+            mediaPlayer.Control.Seek(mediaPlayer.Info.GetDurationMs() - 1f);
+        }
+    }
+
     public void OnMediaPlayerEvent(MediaPlayer mediaPlayer, MediaPlayerEvent.EventType eventType, ErrorCode errorCode)
     {
         switch (eventType)
@@ -20,6 +28,7 @@ public class MonitorManager : MonoBehaviour
                 break;
             case MediaPlayerEvent.EventType.Started:
                 canvasGroup.alpha = 1f;
+                GameManager.Instance.BGM.Pause();
                 GameManager.Instance.GazeTriggerManager.gameObject.SetActive(false);
                 break;
             case MediaPlayerEvent.EventType.FirstFrameReady:
@@ -29,6 +38,7 @@ public class MonitorManager : MonoBehaviour
             case MediaPlayerEvent.EventType.FinishedPlaying:
                 {
                     GameManager.Instance.GazeTriggerManager.gameObject.SetActive(true);
+                    GameManager.Instance.BGM.UnPause();
                     mediaPlayer.CloseVideo();
                     if (GameManager.Instance.GazeTriggerManager.IsAllTrigerInteracted())
                     {

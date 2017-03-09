@@ -1,6 +1,4 @@
-﻿using System.Collections;
-using System.Collections.Generic;
-using UnityEngine;
+﻿using UnityEngine;
 
 public enum Flow
 {
@@ -15,12 +13,16 @@ public class GameManager : MonoBehaviour
     public static GameManager Instance { private set; get; }
 
     public VRManager VRManager;
+    public AirVRCameraRig AirVRCameraRig;
     public GazeTriggerManager GazeTriggerManager;
     public MonitorManager MonitorManager;
     public BackgroundManager BackgroundManager;
+    public AudioSource BGM;
 
     public Flow currentFlow { private set; get; }
+
     public bool readyToEnding;
+
 
     private void Awake()
     {
@@ -42,10 +44,16 @@ public class GameManager : MonoBehaviour
         {
             case Flow.Intro:
                 {
+                    if (Input.GetKeyDown(KeyCode.RightArrow))
+                    {
+                        BackgroundManager._mediaPlayer.Control.Seek(90000f);
+                    }
+
                     if (BackgroundManager._mediaPlayer.Control.GetCurrentTimeMs() >= 90000f)
                     {
                         BackgroundManager._mediaPlayer.Control.Pause();
                         GazeTriggerManager.gameObject.SetActive(true);
+                        BGM.Play();
                         currentFlow = Flow.Interact;
                     }
                 }
@@ -54,9 +62,10 @@ public class GameManager : MonoBehaviour
                 {
                     if (GazeTriggerManager.IsAllTrigerInteracted() && readyToEnding)
                     {
-                        currentFlow = Flow.Ending;
+                        BGM.Stop();
                         GazeTriggerManager.gameObject.SetActive(false);
                         BackgroundManager._mediaPlayer.Control.Play();
+                        currentFlow = Flow.Ending;
                     }
                 }
                 break;
@@ -68,7 +77,6 @@ public class GameManager : MonoBehaviour
                     }
                 }
                 break;
-
         }
     }
 }

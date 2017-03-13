@@ -14,9 +14,13 @@ public class MonitorManager : MonoBehaviour
 
     private void Update()
     {
-        if (mediaPlayer.Control.IsPlaying() && Input.GetKeyDown(KeyCode.RightArrow))
+        if (mediaPlayer.Control.IsPlaying())
         {
+            if (Input.GetKeyDown(KeyCode.RightArrow) || AirVRInput.GetButtonDown(GameManager.Instance.AirVRCameraRig, AirVRInput.Touchpad.Button.BackButton))
+            {
             mediaPlayer.Control.Seek(mediaPlayer.Info.GetDurationMs() - 1f);
+
+            }
         }
     }
 

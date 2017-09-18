@@ -1,5 +1,12 @@
 #if UNITY_EDITOR || UNITY_STANDALONE_OSX || UNITY_STANDALONE_WIN
 	#define UNITY_PLATFORM_SUPPORTS_LINEAR
+#elif UNITY_IOS || UNITY_ANDROID
+	#if UNITY_5_5_OR_NEWER || (UNITY_5 && !UNITY_5_0 && !UNITY_5_1 && !UNITY_5_2 && !UNITY_5_3 && !UNITY_5_4)
+		#define UNITY_PLATFORM_SUPPORTS_LINEAR
+	#endif
+#endif
+#if UNITY_5_4_OR_NEWER || (UNITY_5 && !UNITY_5_0)
+	#define UNITY_HELPATTRIB
 #endif
 
 using UnityEngine;
@@ -17,13 +24,16 @@ namespace RenderHeads.Media.AVProVideo
 	[RequireComponent(typeof(MeshFilter))]
 	//[ExecuteInEditMode]
 	[AddComponentMenu("AVPro Video/Cubemap Cube (VR)", 400)]
+#if UNITY_HELPATTRIB
+	[HelpURL("http://renderheads.com/product/avpro-video/")]
+#endif
 	public class CubemapCube : MonoBehaviour
 	{
 		private Mesh _mesh;
-        private MeshRenderer _renderer;
+        protected MeshRenderer _renderer;
 
         [SerializeField]
-        private Material _material = null;
+        protected Material _material = null;
 
         [SerializeField]
         private MediaPlayer _mediaPlayer = null;
@@ -38,6 +48,10 @@ namespace RenderHeads.Media.AVProVideo
 		private int _textureHeight;
 		private static int _propApplyGamma;
 
+		private static int _propUseYpCbCr;
+		private const string PropChromaTexName = "_ChromaTex";
+		private static int _propChromaTex;
+
 		public MediaPlayer Player
 		{
 			set { _mediaPlayer = value; }
@@ -51,6 +65,10 @@ namespace RenderHeads.Media.AVProVideo
 			{
 				_propApplyGamma = Shader.PropertyToID("_ApplyGamma");
 			}
+			if (_propUseYpCbCr == 0)
+				_propUseYpCbCr = Shader.PropertyToID("_UseYpCbCr");
+			if (_propChromaTex == 0)
+				_propChromaTex = Shader.PropertyToID(PropChromaTexName);
 		}
 
 		void Start()
@@ -109,7 +127,8 @@ namespace RenderHeads.Media.AVProVideo
 				{
 					if (_mediaPlayer.TextureProducer != null)
 					{
-						texture = _mediaPlayer.TextureProducer.GetTexture();
+						Texture resamplerTex = _mediaPlayer.FrameResampler == null || _mediaPlayer.FrameResampler.OutputTexture == null ? null : _mediaPlayer.FrameResampler.OutputTexture[0];
+						texture = _mediaPlayer.m_Resample ? resamplerTex : _mediaPlayer.TextureProducer.GetTexture();
 						requiresVerticalFlip = _mediaPlayer.TextureProducer.RequiresVerticalFlip();
 
 						// Detect changes that we need to apply to the material/mesh
@@ -132,6 +151,12 @@ namespace RenderHeads.Media.AVProVideo
 							Helper.SetupGammaMaterial(_renderer.material, _mediaPlayer.Info.PlayerSupportsLinearColorSpace());
 						}
 #endif
+						if (_renderer.material.HasProperty(_propUseYpCbCr) && _mediaPlayer.TextureProducer.GetTextureCount() == 2)
+						{
+							_renderer.material.EnableKeyword("USE_YPCBCR");
+							Texture resamplerTexYCRCB = _mediaPlayer.FrameResampler == null || _mediaPlayer.FrameResampler.OutputTexture == null ? null : _mediaPlayer.FrameResampler.OutputTexture[1];
+							_renderer.material.SetTexture(_propChromaTex, _mediaPlayer.m_Resample ? resamplerTexYCRCB : _mediaPlayer.TextureProducer.GetTexture(1));
+						}
 					}
 
 					_renderer.material.mainTexture = _texture;
@@ -262,40 +287,40 @@ namespace RenderHeads.Media.AVProVideo
 			Vector2[] uv = new Vector2[]
 			{
 				//left
-				new Vector2(third+wO,1-hO),
-				new Vector2((third*2)-wO, 1-hO),
-				new Vector2((third*2)-wO, half+hO),
+				new Vector2(third+wO,1f-hO),
+				new Vector2((third*2f)-wO, 1f-hO),
+				new Vector2((third*2f)-wO, half+hO),
 				new Vector2(third+wO, half+hO),
 
 				//front
 				new Vector2(third+wO, half-hO),
-				new Vector2((third*2)-wO, half-hO),
-				new Vector2((third*2)-wO, 0f+hO),
+				new Vector2((third*2f)-wO, half-hO),
+				new Vector2((third*2f)-wO, 0f+hO),
 				new Vector2(third+wO, 0f+hO),
 
 				//right
-				new Vector2(0+wO, 1f-hO),
+				new Vector2(0f+wO, 1f-hO),
 				new Vector2(third-wO, 1f-hO),
 				new Vector2(third-wO, half+hO),
-				new Vector2(0+wO, half+hO),
+				new Vector2(0f+wO, half+hO),
 
 				//back
 				new Vector2((third*2)+wO, half-hO),
-				new Vector2(1-wO, half-hO),
-				new Vector2(1-wO, 0+hO),
-				new Vector2((third*2)+wO, 0+hO),
+				new Vector2(1f-wO, half-hO),
+				new Vector2(1f-wO, 0f+hO),
+				new Vector2((third*2f)+wO, 0f+hO),
 
 				//bottom
-				new Vector2(0+wO, 0+hO),
-				new Vector2(0+wO, half-hO),
+				new Vector2(0f+wO, 0f+hO),
+				new Vector2(0f+wO, half-hO),
 				new Vector2(third-wO, half-hO),
-				new Vector2(third-wO, 0+hO),
+				new Vector2(third-wO, 0f+hO),
 
 				//top
-				new Vector2(1-wO, 1-hO),
-				new Vector2(1-wO, half+hO),
-				new Vector2((third*2)+wO, half+hO),
-				new Vector2((third*2)+wO, 1-hO)
+				new Vector2(1f-wO, 1f-hO),
+				new Vector2(1f-wO, half+hO),
+				new Vector2((third*2f)+wO, half+hO),
+				new Vector2((third*2f)+wO, 1f-hO)
 			};
 			
 			if (flipY)

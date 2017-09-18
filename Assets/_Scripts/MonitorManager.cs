@@ -16,7 +16,7 @@ public class MonitorManager : MonoBehaviour
     {
         if (mediaPlayer.Control.IsPlaying())
         {
-            if (Input.GetKeyDown(KeyCode.RightArrow) || AirVRInput.GetButtonDown(GameManager.Instance.AirVRCameraRig, AirVRInput.Touchpad.Button.BackButton))
+            if (Input.GetKeyDown(KeyCode.RightArrow) || AirVRInput.GetDown(GameManager.Instance.AirVRCameraRig, AirVRInput.Touchpad.Button.Back))
             {
             mediaPlayer.Control.Seek(mediaPlayer.Info.GetDurationMs() - 1f);
 

@@ -1,5 +1,5 @@
-﻿#if UNITY_4_6 || UNITY_4_7 || UNITY_4_8 || UNITY_5
-#define UNITY_FEATURE_UGUI
+﻿#if UNITY_4_6 || UNITY_4_7 || UNITY_4_8 || UNITY_5 || UNITY_5_4_OR_NEWER
+	#define UNITY_FEATURE_UGUI
 #endif
 
 using UnityEngine;
@@ -267,7 +267,11 @@ namespace RenderHeads.Media.AVProVideo.Demos
 			if (PlayingPlayer && PlayingPlayer.Info != null && PlayingPlayer.Info.GetDurationMs() > 0f)
 			{
 				float time = PlayingPlayer.Control.GetCurrentTimeMs();
-				float d = time / PlayingPlayer.Info.GetDurationMs();
+				float duration = PlayingPlayer.Info.GetDurationMs();
+				float d = Mathf.Clamp(time / duration, 0.0f, 1.0f);
+
+				// Debug.Log(string.Format("time: {0}, duration: {1}, d: {2}", time, duration, d));
+
 				_setVideoSeekSliderValue = d;
 				_videoSeekSlider.value = d;
 			}

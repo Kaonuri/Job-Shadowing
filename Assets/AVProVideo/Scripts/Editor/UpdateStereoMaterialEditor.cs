@@ -1,18 +1,5 @@
-﻿#if UNITY_5 && !UNITY_5_0 && !UNITY_5_1 && !UNITY_5_2 && !UNITY_5_3_0
-	#define AVPRO_UNITY_PLATFORM_TVOS
-#endif
-#if UNITY_5 && !UNITY_5_0 && !UNITY_5_1 && !UNITY_5_2_0
-	#define AVPRO_UNITY_IOS_ALLOWHTTPDOWNLOAD
-#endif
-#if !UNITY_5
-	#define AVPRO_UNITY_METRO
-#endif
-#if UNITY_5 &&  !UNITY_5_0 && !UNITY_5_1 && !UNITY_5_2 && !UNITY_5_3_0
-	#define AVPRO_UNITY_WP8_DEPRECATED
-#endif
-using UnityEngine;
+﻿using UnityEngine;
 using UnityEditor;
-using System.Collections.Generic;
 
 //-----------------------------------------------------------------------------
 // Copyright 2015-2017 RenderHeads Ltd.  All rights reserverd.
@@ -42,7 +29,9 @@ namespace RenderHeads.Media.AVProVideo.Editor
 			serializedObject.Update();
 
 			if (_propCamera == null)
+			{
 				return;
+			}
 
 			EditorGUILayout.PropertyField(_propCamera);
 			if (_propCamera.objectReferenceValue == null)

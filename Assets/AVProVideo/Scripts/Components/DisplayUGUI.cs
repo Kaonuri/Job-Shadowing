@@ -1,14 +1,22 @@
-#if UNITY_4_6 || UNITY_4_7 || UNITY_4_8 || UNITY_5
+#if UNITY_4_6 || UNITY_4_7 || UNITY_4_8 || UNITY_5 || UNITY_5_4_OR_NEWER
 	#define UNITY_FEATURE_UGUI
 #endif
 
 #if UNITY_EDITOR || UNITY_STANDALONE_OSX || UNITY_STANDALONE_WIN
 	#define UNITY_PLATFORM_SUPPORTS_LINEAR
+#elif UNITY_IOS || UNITY_ANDROID
+	#if UNITY_5_5_OR_NEWER || (UNITY_5 && !UNITY_5_0 && !UNITY_5_1 && !UNITY_5_2 && !UNITY_5_3 && !UNITY_5_4)
+		#define UNITY_PLATFORM_SUPPORTS_LINEAR
+	#endif
 #endif
 
 // Some older versions of Unity don't set the _TexelSize variable from uGUI so we need to set this manually
-#if (!UNITY_5 || UNITY_5_0 || UNITY_5_1 || UNITY_5_2 || UNITY_5_3_0 || UNITY_5_3_1 || UNITY_5_3_2 || UNITY_5_3_3)
+#if ((!UNITY_5_4_OR_NEWER && !UNITY_5) || UNITY_5_0 || UNITY_5_1 || UNITY_5_2 || UNITY_5_3_0 || UNITY_5_3_1 || UNITY_5_3_2 || UNITY_5_3_3)
 	#define UNITY_UGUI_NOSET_TEXELSIZE
+#endif
+
+#if UNITY_5_4_OR_NEWER || (UNITY_5 && !UNITY_5_0)
+	#define UNITY_HELPATTRIB
 #endif
 
 using System.Collections.Generic;
@@ -23,6 +31,9 @@ using UnityEngine.UI;
 namespace RenderHeads.Media.AVProVideo
 {
 	[ExecuteInEditMode]
+#if UNITY_HELPATTRIB
+	[HelpURL("http://renderheads.com/product/avpro-video/")]
+#endif
 	[AddComponentMenu("AVPro Video/Display uGUI", 200)]
 	public class DisplayUGUI : UnityEngine.UI.MaskableGraphic
 	{
@@ -57,11 +68,19 @@ namespace RenderHeads.Media.AVProVideo
 		private static int _propVertScale;
 		private static int _propStereo;
 		private static int _propApplyGamma;
+		private static int _propUseYpCbCr;
+		private const string PropChromaTexName = "_ChromaTex";
+		private static int _propChromaTex;
 #if UNITY_UGUI_NOSET_TEXELSIZE
 		private static int _propMainTextureTexelSize;
 #endif
 		private bool _userMaterial = true;
 		private Material _material;
+
+#if UNITY_5_4_OR_NEWER || (UNITY_5 && !UNITY_5_0 && !UNITY_5_1 && !UNITY_5_2_0 && !UNITY_5_2_1)
+		private List<UIVertex> _vertices = new List<UIVertex>(4);
+		private static List<int> QuadIndices = new List<int>(new int[] { 0, 1, 2, 2, 3, 0 });
+#endif
 
 		protected override void Awake()
 		{
@@ -71,6 +90,8 @@ namespace RenderHeads.Media.AVProVideo
 				_propAlphaPack = Shader.PropertyToID("AlphaPack");
 				_propVertScale = Shader.PropertyToID("_VertScale");
 				_propApplyGamma = Shader.PropertyToID("_ApplyGamma");
+				_propUseYpCbCr = Shader.PropertyToID("_UseYpCbCr");
+				_propChromaTex = Shader.PropertyToID(PropChromaTexName);
 #if UNITY_UGUI_NOSET_TEXELSIZE
 				_propMainTextureTexelSize = Shader.PropertyToID("_MainTex_TexelSize");
 #endif
@@ -154,6 +175,10 @@ namespace RenderHeads.Media.AVProVideo
 				}
 			}
 #endif
+			if (result == null && _mediaPlayer.TextureProducer != null && _mediaPlayer.TextureProducer.GetTextureCount() == 2)
+			{
+				result = _shaderAlphaPacking;
+			}
 
 			return result;
 		}
@@ -168,7 +193,8 @@ namespace RenderHeads.Media.AVProVideo
 				Texture result = Texture2D.whiteTexture;
 				if (HasValidTexture())
 				{
-					result = _mediaPlayer.TextureProducer.GetTexture();
+					Texture resamplerTex = _mediaPlayer.FrameResampler == null || _mediaPlayer.FrameResampler.OutputTexture == null ? null : _mediaPlayer.FrameResampler.OutputTexture[0];
+					result = _mediaPlayer.m_Resample ? resamplerTex : _mediaPlayer.TextureProducer.GetTexture();
 				}
 				else
 				{
@@ -181,12 +207,12 @@ namespace RenderHeads.Media.AVProVideo
 						result = _defaultTexture;
 					}
 
+#if UNITY_EDITOR
 					if (result == null && _displayInEditor)
 					{
-#if UNITY_EDITOR
 						result = Resources.Load<Texture2D>("AVProVideoIcon");
-#endif
 					}
+#endif
 				}
 				return result;
 			}
@@ -269,6 +295,14 @@ namespace RenderHeads.Media.AVProVideo
 
 			if (material != null && _mediaPlayer != null)
 			{
+				// YpCbCr support
+				if (material.HasProperty(_propUseYpCbCr) && _mediaPlayer.TextureProducer != null && _mediaPlayer.TextureProducer.GetTextureCount() == 2)
+				{
+					material.EnableKeyword("USE_YPCBCR");
+					Texture resamplerTex = _mediaPlayer.FrameResampler == null || _mediaPlayer.FrameResampler.OutputTexture == null ? null : _mediaPlayer.FrameResampler.OutputTexture[1];
+					material.SetTexture(_propChromaTex, _mediaPlayer.m_Resample ? resamplerTex : _mediaPlayer.TextureProducer.GetTexture(1));
+				}
+
 				// Apply changes for alpha videos
 				if (material.HasProperty(_propAlphaPack))
 				{
@@ -352,7 +386,6 @@ namespace RenderHeads.Media.AVProVideo
 		/// <summary>
 		/// Adjust the scale of the Graphic to make it pixel-perfect.
 		/// </summary>
-
 		[ContextMenu("Set Native Size")]
 		public override void SetNativeSize()
 		{
@@ -364,6 +397,17 @@ namespace RenderHeads.Media.AVProVideo
 
 				if (_mediaPlayer != null)
 				{
+#if UNITY_EDITOR_OSX || UNITY_STANDALONE_OSX || UNITY_IPHONE || UNITY_IOS || UNITY_TVOS
+					if (_mediaPlayer.Info != null)
+					{
+						Orientation ori = Helper.GetOrientation(_mediaPlayer.Info.GetTextureTransform());
+						if (ori == Orientation.Portrait || ori == Orientation.PortraitFlipped)
+						{
+							w = Mathf.RoundToInt(tex.height * uvRect.width);
+							h = Mathf.RoundToInt(tex.width * uvRect.height);
+						}
+					}
+#endif
 					if (_mediaPlayer.m_AlphaPacking == AlphaPacking.LeftRight || _mediaPlayer.m_StereoPacking == StereoPacking.LeftRight)
 					{
 						w /= 2;
@@ -382,9 +426,9 @@ namespace RenderHeads.Media.AVProVideo
 		/// <summary>
 		/// Update all renderer data.
 		/// </summary>
-// OnFillVBO deprecated by 5.2
-// OnPopulateMesh(Mesh mesh) deprecated by 5.2 patch 1
-#if UNITY_5 && !UNITY_5_0 && !UNITY_5_1 && !UNITY_5_2_0
+		// OnFillVBO deprecated by 5.2
+		// OnPopulateMesh(Mesh mesh) deprecated by 5.2 patch 1
+#if UNITY_5_4_OR_NEWER || (UNITY_5 && !UNITY_5_0 && !UNITY_5_1 && !UNITY_5_2_0)
 /*		protected override void OnPopulateMesh(Mesh mesh)
 		{			
 			List<UIVertex> verts = new List<UIVertex>();
@@ -403,13 +447,10 @@ namespace RenderHeads.Media.AVProVideo
 		protected override void OnPopulateMesh(VertexHelper vh)
 		{
 			vh.Clear();
-			
-			List<UIVertex> aVerts = new List<UIVertex>();
-			_OnFillVBO( aVerts );
 
-			// TODO: cache these indices since they never change?
-			List<int> aIndicies = new List<int>( new int[]{ 0, 1, 2, 2, 3, 0 } );
-			vh.AddUIVertexStream( aVerts, aIndicies );
+			_OnFillVBO(_vertices);
+
+			vh.AddUIVertexStream(_vertices, QuadIndices );
 		}
 #endif
 		[System.Obsolete("This method is not called from Unity 5.2 and above")]
@@ -430,17 +471,28 @@ namespace RenderHeads.Media.AVProVideo
 			Rect uvRect = m_UVRect;
 			Vector4 v = GetDrawingDimensions(_scaleMode, ref uvRect);
 
+#if UNITY_EDITOR_OSX || UNITY_STANDALONE_OSX || UNITY_IPHONE || UNITY_IOS || UNITY_TVOS
+			Matrix4x4 m = Matrix4x4.identity;
+			if (HasValidTexture())
+			{
+				m = Helper.GetMatrixForOrientation(Helper.GetOrientation(_mediaPlayer.Info.GetTextureTransform()));
+			}
+#endif
 			vbo.Clear();
 
 			var vert = UIVertex.simpleVert;
+			vert.color = color;
 
 			vert.position = new Vector2(v.x, v.y);
+
 			vert.uv0 = new Vector2(uvRect.xMin, uvRect.yMin);
 			if (_flipY)
 			{
 				vert.uv0 = new Vector2(uvRect.xMin, 1.0f - uvRect.yMin);
 			}
-			vert.color = color;
+#if UNITY_EDITOR_OSX || UNITY_STANDALONE_OSX || UNITY_IPHONE || UNITY_IOS || UNITY_TVOS
+			vert.uv0 = m.MultiplyPoint3x4(vert.uv0);
+#endif
 			vbo.Add(vert);
 
 			vert.position = new Vector2(v.x, v.w);
@@ -449,7 +501,9 @@ namespace RenderHeads.Media.AVProVideo
 			{
 				vert.uv0 = new Vector2(uvRect.xMin, 1.0f - uvRect.yMax);
 			}
-			vert.color = color;
+#if UNITY_EDITOR_OSX || UNITY_STANDALONE_OSX || UNITY_IPHONE || UNITY_IOS || UNITY_TVOS
+			vert.uv0 = m.MultiplyPoint3x4(vert.uv0);
+#endif
 			vbo.Add(vert);
 
 			vert.position = new Vector2(v.z, v.w);
@@ -458,7 +512,9 @@ namespace RenderHeads.Media.AVProVideo
 			{
 				vert.uv0 = new Vector2(uvRect.xMax, 1.0f - uvRect.yMax);
 			}
-			vert.color = color;
+#if UNITY_EDITOR_OSX || UNITY_STANDALONE_OSX || UNITY_IPHONE || UNITY_IOS || UNITY_TVOS
+			vert.uv0 = m.MultiplyPoint3x4(vert.uv0);
+#endif
 			vbo.Add(vert);
 
 			vert.position = new Vector2(v.z, v.y);
@@ -467,7 +523,9 @@ namespace RenderHeads.Media.AVProVideo
 			{
 				vert.uv0 = new Vector2(uvRect.xMax, 1.0f - uvRect.yMin);
 			}
-			vert.color = color;
+#if UNITY_EDITOR_OSX || UNITY_STANDALONE_OSX || UNITY_IPHONE || UNITY_IOS || UNITY_TVOS
+			vert.uv0 = m.MultiplyPoint3x4(vert.uv0);
+#endif
 			vbo.Add(vert);
 		}
 
@@ -478,23 +536,36 @@ namespace RenderHeads.Media.AVProVideo
 			if (mainTexture != null)
 			{
 				var padding = Vector4.zero;
-				var textureSize = new Vector2(mainTexture.width, mainTexture.height);
 
-				if (_mediaPlayer != null)
+				var textureSize = new Vector2(mainTexture.width, mainTexture.height);
 				{
-					if (_mediaPlayer.m_AlphaPacking == AlphaPacking.LeftRight || _mediaPlayer.m_StereoPacking == StereoPacking.LeftRight)
+					// Adjust textureSize based on orientation
+#if UNITY_EDITOR_OSX || UNITY_STANDALONE_OSX || UNITY_IPHONE || UNITY_IOS || UNITY_TVOS
+					if (HasValidTexture())
 					{
-						textureSize.x /= 2f;
+						Matrix4x4 m = Helper.GetMatrixForOrientation(Helper.GetOrientation(_mediaPlayer.Info.GetTextureTransform()));
+						textureSize = m.MultiplyVector(textureSize);
+						textureSize.x = Mathf.Abs(textureSize.x);
+						textureSize.y = Mathf.Abs(textureSize.y);
 					}
-					else if (_mediaPlayer.m_AlphaPacking == AlphaPacking.TopBottom || _mediaPlayer.m_StereoPacking == StereoPacking.TopBottom)
+#endif
+					// Adjust textureSize based on alpha packing
+					if (_mediaPlayer != null)
 					{
-						textureSize.y /= 2f;
+						if (_mediaPlayer.m_AlphaPacking == AlphaPacking.LeftRight || _mediaPlayer.m_StereoPacking == StereoPacking.LeftRight)
+						{
+							textureSize.x /= 2f;
+						}
+						else if (_mediaPlayer.m_AlphaPacking == AlphaPacking.TopBottom || _mediaPlayer.m_StereoPacking == StereoPacking.TopBottom)
+						{
+							textureSize.y /= 2f;
+						}
 					}
 				}
 				
 				Rect r = GetPixelAdjustedRect();
-//				Debug.Log(string.Format("r:{2}, textureSize:{0}, padding:{1}", textureSize, padding, r));
-				
+
+				// Fit the above textureSize into rectangle r
 				int spriteW = Mathf.RoundToInt( textureSize.x );
 				int spriteH = Mathf.RoundToInt( textureSize.y );
 				

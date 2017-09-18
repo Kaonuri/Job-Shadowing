@@ -1,3 +1,7 @@
+#if UNITY_5_4_OR_NEWER || (UNITY_5 && !UNITY_5_0)
+	#define UNITY_HELPATTRIB
+#endif
+
 using UnityEngine;
 
 //-----------------------------------------------------------------------------
@@ -13,6 +17,9 @@ namespace RenderHeads.Media.AVProVideo
 	/// NOTE: This doesn't work with the camera clear mode set to 'skybox'
 	/// </summary>
 	[AddComponentMenu("AVPro Video/Display Background", 200)]
+#if UNITY_HELPATTRIB
+	[HelpURL("http://renderheads.com/product/avpro-video/")]
+#endif
 	[ExecuteInEditMode]
 	public class DisplayBackground : MonoBehaviour
 	{

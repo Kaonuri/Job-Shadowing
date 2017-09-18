@@ -35,7 +35,7 @@ namespace RenderHeads.Media.AVProVideo
 			return "0.0.0";
 		}
 
-		public override bool OpenVideoFromFile(string path, long offset)
+		public override bool OpenVideoFromFile(string path, long offset, string httpHeaderJson)
 		{
 			_texture_AVPro = (Texture2D)Resources.Load("AVPro");
 			_texture_AVPro1 = (Texture2D)Resources.Load("AVPro1");

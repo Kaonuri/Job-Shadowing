@@ -1,4 +1,8 @@
-﻿using UnityEngine;
+﻿#if UNITY_5_4_OR_NEWER || (UNITY_5 && !UNITY_5_0)
+	#define UNITY_HELPATTRIB
+#endif
+
+using UnityEngine;
 
 //-----------------------------------------------------------------------------
 // Copyright 2015-2017 RenderHeads Ltd.  All rights reserverd.
@@ -12,6 +16,9 @@ namespace RenderHeads.Media.AVProVideo
 	/// be needed once we have support for single-pass stereo rendering.
 	/// </summary>
 	[AddComponentMenu("AVPro Video/Update Stereo Material", 400)]
+#if UNITY_HELPATTRIB
+	[HelpURL("http://renderheads.com/product/avpro-video/")]
+#endif
 	public class UpdateStereoMaterial : MonoBehaviour
 	{
 		[Header("Stereo camera")]

@@ -1,9 +1,17 @@
 #if UNITY_EDITOR || UNITY_STANDALONE_OSX || UNITY_STANDALONE_WIN
 	#define UNITY_PLATFORM_SUPPORTS_LINEAR
+#elif UNITY_IOS || UNITY_ANDROID
+	#if UNITY_5_5_OR_NEWER || (UNITY_5 && !UNITY_5_0 && !UNITY_5_1 && !UNITY_5_2 && !UNITY_5_3 && !UNITY_5_4)
+		#define UNITY_PLATFORM_SUPPORTS_LINEAR
+	#endif
 #endif
 
 using UnityEngine;
 using System.Collections.Generic;
+
+#if NETFX_CORE
+using Windows.Storage.Streams;
+#endif
 
 //-----------------------------------------------------------------------------
 // Copyright 2015-2017 RenderHeads Ltd.  All rights reserverd.
@@ -26,6 +34,7 @@ namespace RenderHeads.Media.AVProVideo
 			SubtitleChange,		// Called when the subtitles change
 			Stalled,			// Called when media is stalled (eg. when lost connection to media stream)
 			Unstalled			// Called when media is resumed form a stalled state (eg. when lost connection is re-established)
+
 			// TODO: 
 			//FinishedSeeking,	// Called when seeking has finished
 			//StartLoop,			// Called when the video starts and is in loop mode
@@ -35,6 +44,7 @@ namespace RenderHeads.Media.AVProVideo
 
 	public interface IMediaPlayer
 	{
+		void OnEnable();
 		void Update();
 		void Render();
 	}
@@ -52,13 +62,18 @@ namespace RenderHeads.Media.AVProVideo
 		// TODO: audio panning
 
 		/// <summary>
-		/// Be careful using this method directly.  It is best to instead use the OpenVidoeFromFile() method in the MediaPlayer component as this will set up the events correctly and also perform other checks
+		/// Be careful using this method directly.  It is best to instead use the OpenVideoFromFile() method in the MediaPlayer component as this will set up the events correctly and also perform other checks
 		/// </summary>
-		bool	OpenVideoFromFile(string path, long offset);
+		bool	OpenVideoFromFile(string path, long offset, string httpHeaderJson);
+		bool	OpenVideoFromBuffer(byte[] buffer);
 
-        void    CloseVideo();
+#if NETFX_CORE
+		bool OpenVideoFromFile(IRandomAccessStream ras, string path, long offset, string httpHeaderJson);
+#endif
 
-        void	SetLooping(bool bLooping);
+		void CloseVideo();
+
+		void	SetLooping(bool bLooping);
 		bool	IsLooping();
 
 		bool	HasMetaData();
@@ -84,7 +99,9 @@ namespace RenderHeads.Media.AVProVideo
 		void	MuteAudio(bool bMute);
 		bool	IsMuted();
 		void	SetVolume(float volume);
+		void	SetBalance(float balance);
 		float	GetVolume();
+		float	GetBalance();
 
 		int		GetCurrentAudioTrack();
 		void	SetAudioTrack(int index);
@@ -101,6 +118,10 @@ namespace RenderHeads.Media.AVProVideo
 		void	SetTextureProperties(FilterMode filterMode = FilterMode.Bilinear, TextureWrapMode wrapMode = TextureWrapMode.Clamp, int anisoLevel = 1);
 
 		void	GrabAudio(float[] buffer, int floatCount, int channelCount);
+
+		int		GetNumAudioChannels();
+
+		bool	WaitForNextFrame(Camera dummyCamera, int previousFrameCount);
 	}
 
 	public interface IMediaInfo
@@ -119,6 +140,12 @@ namespace RenderHeads.Media.AVProVideo
 		/// Returns video height in pixels
 		/// </summary>
 		int		GetVideoHeight();
+
+		/// <summary>
+		/// 
+		/// </summary>
+		/// <returns></returns>
+		Rect	GetCropRect();
 
 		/// <summary>
 		/// Returns the frame rate of the media.
@@ -193,6 +220,10 @@ namespace RenderHeads.Media.AVProVideo
 		/// </summary>
 		bool IsPlaybackStalled();
 
+		/// <summary>
+		/// The affine transform of the texture as an array of six floats: a, b, c, d, tx, ty.
+		/// </summary>
+		float[] GetTextureTransform();
 
 		/*
 		string GetMediaDescription();
@@ -203,18 +234,23 @@ namespace RenderHeads.Media.AVProVideo
 	public interface IMediaProducer
 	{
 		/// <summary>
+		/// Gets the number of textures produced by the media player.
+		/// </summary>
+		int GetTextureCount();
+
+		/// <summary>
 		/// Returns the Unity texture containing the current frame image.
 		/// The texture pointer will return null while the video is loading
 		/// This texture usually remains the same for the duration of the video.
 		/// There are cases when this texture can change, for instance: if the graphics device is recreated,
 		/// a new video is loaded, or if an adaptive stream (eg HLS) is used and it switches video streams.
 		/// </summary>
-		Texture GetTexture( int index = 0 );
+		Texture GetTexture(int index = 0);
 
 		/// <summary>
 		/// Returns a count of how many times the texture has been updated
 		/// </summary>
-		int		GetTextureFrameCount();
+		int GetTextureFrameCount();
 
 		/// <summary>
 		/// Returns the presentation time stamp of the current texture
@@ -224,7 +260,7 @@ namespace RenderHeads.Media.AVProVideo
 		/// <summary>
 		/// Returns true if the image on the texture is upside-down
 		/// </summary>
-		bool	RequiresVerticalFlip();
+		bool RequiresVerticalFlip();
 	}
 
 	// TODO: complete this?
@@ -242,7 +278,8 @@ namespace RenderHeads.Media.AVProVideo
 		WindowsPhone,
 		WindowsUWP,
 		WebGL,
-		Count = 8,
+		PS4,
+		Count = 9,
 		Unknown = 100,
 	}
 
@@ -251,6 +288,7 @@ namespace RenderHeads.Media.AVProVideo
 		None,
 		TopBottom,				// Top is the left eye, bottom is the right eye
 		LeftRight,              // Left is the left eye, right is the right eye
+		CustomUV,				// Custom packing, use the mesh UV to unpack, uv0=left eye, uv1=right eye
 	}
 
 	public enum AlphaPacking
@@ -265,6 +303,14 @@ namespace RenderHeads.Media.AVProVideo
 		None = 0,
 		LoadFailed = 100,
 		DecodeFailed = 200,
+	}
+
+	public enum Orientation
+	{
+		Landscape,				// Landscape Right (0 degrees)
+		LandscapeFlipped,		// Landscape Left (180 degrees)
+		Portrait,				// Portrait Up (90 degrees)
+		PortraitFlipped,		// Portrait Down (-90 degrees)
 	}
 
 	public static class Windows
@@ -299,7 +345,7 @@ namespace RenderHeads.Media.AVProVideo
 
 	public static class Helper
 	{
-		public const string ScriptVersion = "1.5.25";
+		public const string ScriptVersion = "1.6.14";
 
 		public static string GetName(Platform platform)
 		{
@@ -322,7 +368,7 @@ namespace RenderHeads.Media.AVProVideo
 					result = "No Error";
 					break;
 				case ErrorCode.LoadFailed:
-					result = "Loading failed.  Possible codec not supported, video resolution too high or insufficient system resources.";
+					result = "Loading failed.  Codec not supported or video resolution too high or insufficient system resources.";
 #if UNITY_STANDALONE_WIN || UNITY_EDITOR_WIN
 					// Add extra information for older Windows versions that don't have support for modern codecs
 					if (SystemInfo.operatingSystem.StartsWith("Windows XP") ||
@@ -353,6 +399,7 @@ namespace RenderHeads.Media.AVProVideo
 				GetName(Platform.WindowsPhone),
 				GetName(Platform.WindowsUWP),
 				GetName(Platform.WebGL),
+				GetName(Platform.PS4),
 			};
 		}
 
@@ -371,7 +418,7 @@ namespace RenderHeads.Media.AVProVideo
 			}
 		}
 
-		public static string GetTimeString(float totalSeconds)
+		public static string GetTimeString(float totalSeconds, bool showMilliseconds = false)
 		{
 			int hours = Mathf.FloorToInt(totalSeconds / (60f * 60f));
 			float usedSeconds = hours * 60f * 60f;
@@ -379,23 +426,90 @@ namespace RenderHeads.Media.AVProVideo
 			int minutes = Mathf.FloorToInt((totalSeconds - usedSeconds) / 60f);
 			usedSeconds += minutes * 60f;
 
-			int seconds = Mathf.RoundToInt(totalSeconds - usedSeconds);
+			int seconds = Mathf.FloorToInt(totalSeconds - usedSeconds);
 
 			string result;
 			if (hours <= 0)
 			{
-				result = string.Format("{0:00}:{1:00}", minutes, seconds);
+				if (showMilliseconds)
+				{
+					int milliSeconds = (int)((totalSeconds - Mathf.Floor(totalSeconds)) * 1000f);
+					result = string.Format("{0:00}:{1:00}:{2:000}", minutes, seconds, milliSeconds);
+				}
+				else
+				{
+					result = string.Format("{0:00}:{1:00}", minutes, seconds);
+				}
 			}
 			else
 			{
-				result = string.Format("{2}:{0:00}:{1:00}", minutes, seconds, hours);
+				if (showMilliseconds)
+				{
+					int milliSeconds = (int)((totalSeconds - Mathf.Floor(totalSeconds)) * 1000f);
+					result = string.Format("{2}:{0:00}:{1:00}:{3:000}", minutes, seconds, hours, milliSeconds);
+				}
+				else
+				{
+					result = string.Format("{2}:{0:00}:{1:00}", minutes, seconds, hours);
+				}
 			}
 
 			return result;
 		}
 
+		/// <summary>
+		/// Convert texture transform matrix to an enum of orientation types
+		/// </summary>
+		public static Orientation GetOrientation(float[] t)
+		{
+			Orientation result = Orientation.Landscape;
+			if (t[0] == 0f && t[1]== 1f && t[2] == -1f && t[3] == 0f)
+			{
+				result = Orientation.Portrait;
+			} else
+			if (t[0] == 0f && t[1] == -1f && t[2] == 1f && t[3] == 0f)
+			{
+				result = Orientation.PortraitFlipped;
+			} else
+			if (t[0]== 1f && t[1] == 0f && t[2] == 0f && t[3] == 1f)
+			{
+				result = Orientation.Landscape;
+			} else
+			if (t[0] == -1f && t[1] == 0f && t[2] == 0f && t[3] == -1f)
+			{
+				result = Orientation.LandscapeFlipped;
+			}
+			return result;
+		}
+
+		public static Matrix4x4 GetMatrixForOrientation(Orientation ori)
+		{
+			// TODO: cache these matrices
+			Matrix4x4 portrait = Matrix4x4.TRS(new Vector3(0f, 1f, 0f), Quaternion.Euler(0f, 0f, -90f), Vector3.one);
+			Matrix4x4 portraitFlipped = Matrix4x4.TRS(new Vector3(1f, 0f, 0f), Quaternion.Euler(0f, 0f, 90f), Vector3.one);
+			Matrix4x4 landscapeFlipped = Matrix4x4.TRS(new Vector3(1f, 1f, 0f), Quaternion.identity, new Vector3(-1f, -1f, 1f));
+
+			Matrix4x4 result = Matrix4x4.identity;
+			switch (ori)
+			{
+				case Orientation.Landscape:
+					break;
+				case Orientation.LandscapeFlipped:
+					result = landscapeFlipped;
+					break;
+				case Orientation.Portrait:
+					result = portrait;
+					break;
+				case Orientation.PortraitFlipped:
+					result = portraitFlipped;
+					break;
+			}
+			return result;
+		}
+
 		public static void SetupStereoMaterial(Material material, StereoPacking packing, bool displayDebugTinting)
 		{
+			material.DisableKeyword("STEREO_CUSTOM_UV");
 			material.DisableKeyword("STEREO_TOP_BOTTOM");
 			material.DisableKeyword("STEREO_LEFT_RIGHT");
 			material.DisableKeyword("MONOSCOPIC");
@@ -410,6 +524,9 @@ namespace RenderHeads.Media.AVProVideo
 					break;
 				case StereoPacking.LeftRight:
 					material.EnableKeyword("STEREO_LEFT_RIGHT");
+					break;
+				case StereoPacking.CustomUV:
+					material.EnableKeyword("STEREO_CUSTOM_UV");
 					break;
 			}
 
@@ -455,6 +572,11 @@ namespace RenderHeads.Media.AVProVideo
 				material.DisableKeyword("APPLY_GAMMA");
 			}
 #endif
+		}
+
+		public static int ConvertTimeSecondsToFrame(float seconds, float frameRate)
+		{
+			return Mathf.FloorToInt(frameRate * seconds);
 		}
 
 		public static float ConvertFrameToTimeSeconds(int frame, float frameRate)
@@ -516,6 +638,7 @@ namespace RenderHeads.Media.AVProVideo
 					case ScaleMode.StretchToFill:
 						break;
 				}
+
 				Graphics.DrawTexture(screenRect, texture, sourceRect, 0, 0, 0, 0, GUI.color, material);
 			}
 		}
@@ -523,42 +646,88 @@ namespace RenderHeads.Media.AVProVideo
 		// Converts a non-readable texture to a readable Texture2D.
 		// "targetTexture" can be null or you can pass in an existing texture.
 		// Remember to Destroy() the returned texture after finished with it
-		public static Texture2D GetReadableTexture(Texture inputTexture, bool requiresVerticalFlip, Texture2D targetTexture)
+		public static Texture2D GetReadableTexture(Texture inputTexture, bool requiresVerticalFlip, Orientation ori, Texture2D targetTexture)
 		{
 			Texture2D resultTexture = targetTexture;
 
 			RenderTexture prevRT = RenderTexture.active;
 
+			int textureWidth = inputTexture.width;
+			int textureHeight = inputTexture.height;
+#if UNITY_EDITOR_OSX || UNITY_STANDALONE_OSX || UNITY_IPHONE || UNITY_IOS || UNITY_TVOS
+			if (ori == Orientation.Portrait || ori == Orientation.PortraitFlipped)
+			{
+				textureWidth = inputTexture.height;
+				textureHeight = inputTexture.width;
+			}
+#endif
+
 			// Blit the texture to a temporary RenderTexture
 			// This handles any format conversion that is required and allows us to use ReadPixels to copy texture from RT to readable texture
-			RenderTexture tempRT = RenderTexture.GetTemporary(inputTexture.width, inputTexture.height, 0, RenderTextureFormat.ARGB32);
+			RenderTexture tempRT = RenderTexture.GetTemporary(textureWidth, textureHeight, 0, RenderTextureFormat.ARGB32);
 
-			if (!requiresVerticalFlip)
+			if (ori == Orientation.Landscape)
 			{
-				Graphics.Blit(inputTexture, tempRT);
+				if (!requiresVerticalFlip)
+				{
+					Graphics.Blit(inputTexture, tempRT);
+				}
+				else
+				{
+					// The above Blit can't flip unless using a material, so we use Graphics.DrawTexture instead
+					GL.PushMatrix();
+					RenderTexture.active = tempRT;
+					GL.LoadPixelMatrix(0f, tempRT.width, 0f, tempRT.height);
+					Rect sourceRect = new Rect(0f, 0f, 1f, 1f);
+					// NOTE: not sure why we need to set y to -1, without this there is a 1px gap at the bottom
+					Rect destRect = new Rect(0f, -1f, tempRT.width, tempRT.height);
+
+					Graphics.DrawTexture(destRect, inputTexture, sourceRect, 0, 0, 0, 0);
+					GL.PopMatrix();
+					GL.InvalidateState();
+				}
 			}
+#if UNITY_EDITOR_OSX || UNITY_STANDALONE_OSX || UNITY_IPHONE || UNITY_IOS || UNITY_TVOS
 			else
 			{
+				Matrix4x4 m = Matrix4x4.identity;
+				switch (ori)
+				{
+					case Orientation.Portrait:
+						m = Matrix4x4.TRS(new Vector3(0f, inputTexture.width, 0f), Quaternion.Euler(0f, 0f, -90f), Vector3.one);
+						break;
+					case Orientation.PortraitFlipped:
+						m = Matrix4x4.TRS(new Vector3(inputTexture.height, 0f, 0f), Quaternion.Euler(0f, 0f, 90f), Vector3.one);
+						break;
+					case Orientation.LandscapeFlipped:
+						m = Matrix4x4.TRS(new Vector3(inputTexture.width, inputTexture.height, 0f), Quaternion.identity, new Vector3(-1f, -1f, 1f));
+						break;
+				}
+				
 				// The above Blit can't flip unless using a material, so we use Graphics.DrawTexture instead
+				GL.InvalidateState();
 				GL.PushMatrix();
+				GL.Clear(false, true, Color.red);
 				RenderTexture.active = tempRT;
 				GL.LoadPixelMatrix(0f, tempRT.width, 0f, tempRT.height);
 				Rect sourceRect = new Rect(0f, 0f, 1f, 1f);
 				// NOTE: not sure why we need to set y to -1, without this there is a 1px gap at the bottom
-				Rect destRect = new Rect(0f, -1f, tempRT.width, tempRT.height);
+				Rect destRect = new Rect(0f, -1f, inputTexture.width, inputTexture.height);
+				GL.MultMatrix(m);
 
 				Graphics.DrawTexture(destRect, inputTexture, sourceRect, 0, 0, 0, 0);
 				GL.PopMatrix();
 				GL.InvalidateState();
 			}
+#endif
 
 			if (resultTexture == null)
 			{
-				resultTexture = new Texture2D(inputTexture.width, inputTexture.height, TextureFormat.ARGB32, false);
+				resultTexture = new Texture2D(textureWidth, textureHeight, TextureFormat.ARGB32, false);
 			}
 
 			RenderTexture.active = tempRT;
-			resultTexture.ReadPixels(new Rect(0f, 0f, inputTexture.width, inputTexture.height), 0, 0, false);
+			resultTexture.ReadPixels(new Rect(0f, 0f, textureWidth, textureHeight), 0, 0, false);
 			resultTexture.Apply(false, false);
 			RenderTexture.ReleaseTemporary(tempRT);
 

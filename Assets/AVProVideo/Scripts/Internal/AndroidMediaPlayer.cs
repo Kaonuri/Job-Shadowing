@@ -1,14 +1,17 @@
 ﻿#define DLL_METHODS
 
 #if UNITY_ANDROID
-	#if UNITY_5
-		#if !UNITY_5_0 && !UNITY_5_1
-			#define AVPROVIDEO_ISSUEPLUGINEVENT_UNITY52
-		#endif
-		#if !UNITY_5_0 && !UNITY_5_1 && !UNITY_5_2 && !UNITY_5_3 && !UNITY_5_4_0 && !UNITY_5_4_1
-			#define AVPROVIDEO_FIXREGRESSION_TEXTUREQUALITY_UNITY542
-		#endif
+#if UNITY_5 || UNITY_5_4_OR_NEWER
+	#if !UNITY_5_0 && !UNITY_5_1
+		#define AVPROVIDEO_ISSUEPLUGINEVENT_UNITY52
 	#endif
+	#if !UNITY_5_0 && !UNITY_5_1 && !UNITY_5_2 && !UNITY_5_3 && !UNITY_5_4_0 && !UNITY_5_4_1
+		#define AVPROVIDEO_FIXREGRESSION_TEXTUREQUALITY_UNITY542
+	#endif
+#endif
+#if !UNITY_5_0 && !UNITY_5_1 && !UNITY_5_2 && !UNITY_5_3 && !UNITY_5_4_0 && !UNITY_5_4_1
+	#define AVPROVIDEO_FIXREGRESSION_TEXTUREQUALITY_UNITY542
+#endif
 
 using UnityEngine;
 using System;
@@ -43,7 +46,9 @@ namespace RenderHeads.Media.AVProVideo
 
 		protected int 						m_iPlayerIndex		= -1;
 
-
+#if AVPROVIDEO_FIXREGRESSION_TEXTUREQUALITY_UNITY542
+		private int _textureQuality = QualitySettings.masterTextureLimit;
+#endif
 		public static void InitialisePlatform()
 		{
 			// Get the activity context
@@ -86,6 +91,7 @@ namespace RenderHeads.Media.AVProVideo
 				case Native.AVPPluginEvent.PlayerSetup:
 				case Native.AVPPluginEvent.PlayerUpdate:
 				case Native.AVPPluginEvent.PlayerDestroy:
+				case Native.AVPPluginEvent.ExtractFrame:
 					{
 						eventId |= param & 0xff;
 					}
@@ -133,18 +139,18 @@ namespace RenderHeads.Media.AVProVideo
 			return s_Version;
 		}
 
-		public override bool OpenVideoFromFile(string path, long offset)
+		public override bool OpenVideoFromFile(string path, long offset, string httpHeaderJson)
 		{
 			bool bReturn = false;
 
 
 			if( m_Video != null )
 			{
-#if UNITY_5
+#if UNITY_5 || UNITY_5_4_OR_NEWER
 				Debug.Assert(m_Width == 0 && m_Height == 0 && m_DurationMs == 0.0f);
 #endif
 
-				bReturn = m_Video.Call<bool>("OpenVideoFromFile", path, offset);
+				bReturn = m_Video.Call<bool>("OpenVideoFromFile", path, offset, httpHeaderJson);
 			}
 
 			return bReturn;
@@ -470,6 +476,24 @@ namespace RenderHeads.Media.AVProVideo
 			return result;
 		}
 
+		public override void SetBalance(float balance)
+		{
+			if( m_Video != null )
+			{
+				m_Video.Call("SetAudioPan", balance);
+			}
+		}
+
+		public override float GetBalance()
+		{
+			float result = 0.0f;
+			if( m_Video != null )
+			{
+				result = m_Video.Call<float>("GetAudioPan");
+			}
+			return result;
+		}
+
 		public override int GetAudioTrackCount()
 		{
 			int result = 0;
@@ -565,7 +589,30 @@ namespace RenderHeads.Media.AVProVideo
 			return bitrate;
 		}
 
-        public override long GetTextureTimeStamp()
+		public override bool WaitForNextFrame(Camera dummyCamera, int previousFrameCount)
+		{
+			// Mark as extracting
+			bool isMultiThreaded = m_Video.Call<bool>("StartExtractFrame");
+
+			// In single threaded Android this method won't work, so just return
+			if (isMultiThreaded)
+			{
+				// Queue up render thread event to wait for the new frame
+				IssuePluginEvent(Native.AVPPluginEvent.ExtractFrame, m_iPlayerIndex);
+
+				// Force render thread to run
+				dummyCamera.Render();
+
+				// Wait for the frame to change
+				m_Video.Call("WaitForExtract");
+
+				// Return whether the frame changed
+				return (previousFrameCount != GetTextureFrameCount());
+			}
+			return false;	
+		}
+
+		public override long GetTextureTimeStamp()
         {
             long timeStamp = long.MinValue;
             if (m_Video != null)
@@ -655,27 +702,22 @@ namespace RenderHeads.Media.AVProVideo
 					}
 				}
 
-#if AVPROVIDEO_FIXREGRESSION_TEXTUREQUALITY_UNITY542 && !AVPROVIDEO_IGNORE_FIXREGRESSION_TEXTUREQUALITY_UNITY542
+#if AVPROVIDEO_FIXREGRESSION_TEXTUREQUALITY_UNITY542
 				// In Unity 5.4.2 and above the video texture turns black when changing the TextureQuality in the Quality Settings
 				// The code below gets around this issue.  A bug report has been sent to Unity.  So far we have tested and replicated the
 				// "bug" in Windows only, but a user has reported it in Android too.  
 				// Texture.GetNativeTexturePtr() must sync with the rendering thread, so this is a large performance hit!
-				if (m_Texture != null && textureHandle > 0 && m_Texture.GetNativeTexturePtr() == System.IntPtr.Zero)
+				if (_textureQuality != QualitySettings.masterTextureLimit)
 				{
-					//Debug.Log("RECREATING");
-					m_Texture.UpdateExternalTexture(new System.IntPtr(textureHandle));
-				}
-#endif
+					if (m_Texture != null && textureHandle > 0 && m_Texture.GetNativeTexturePtr() == System.IntPtr.Zero)
+					{
+						//Debug.Log("RECREATING");
+						m_Texture.UpdateExternalTexture(new System.IntPtr(textureHandle));
+					}
 
-				if( m_DurationMs == 0.0f )
-				{
-#if DLL_METHODS
-					m_DurationMs = (float)( Native._GetDuration( m_iPlayerIndex ) );
-#else
-					m_DurationMs = (float)(m_Video.Call<long>("GetDurationMs"));
-#endif
-//					if( m_DurationMs > 0.0f ) { Helper.LogInfo("Duration: " + m_DurationMs); }
+					_textureQuality = QualitySettings.masterTextureLimit;
 				}
+#endif
 			}
 		}
 
@@ -689,6 +731,27 @@ namespace RenderHeads.Media.AVProVideo
 			}
 		}
 
+		public override void OnEnable()
+		{
+			base.OnEnable();
+
+#if DLL_METHODS
+			int textureHandle = Native._GetTextureHandle(m_iPlayerIndex);
+#else
+            int textureHandle = m_Video.Call<int>("GetTextureHandle");
+#endif
+
+			if (m_Texture != null && textureHandle > 0 && m_Texture.GetNativeTexturePtr() == System.IntPtr.Zero)
+			{
+				//Debug.Log("RECREATING");
+				m_Texture.UpdateExternalTexture(new System.IntPtr(textureHandle));
+			}
+
+#if AVPROVIDEO_FIXREGRESSION_TEXTUREQUALITY_UNITY542
+			_textureQuality = QualitySettings.masterTextureLimit;
+#endif
+		}
+
 		public override void Update()
 		{
 			if (m_Video != null)
@@ -698,8 +761,23 @@ namespace RenderHeads.Media.AVProVideo
 			}
 
 			UpdateSubtitles();
+
+			if(Mathf.Approximately(m_DurationMs, 0f))
+			{
+#if DLL_METHODS
+				m_DurationMs = (float)( Native._GetDuration( m_iPlayerIndex ) );
+#else
+				m_DurationMs = (float)(m_Video.Call<long>("GetDurationMs"));
+#endif
+//				if( m_DurationMs > 0.0f ) { Helper.LogInfo("Duration: " + m_DurationMs); }
+			}
 		}
-		
+
+		public override bool PlayerSupportsLinearColorSpace()
+		{
+			return false;
+		}
+
 		public override void Dispose()
 		{
 			//Debug.LogError("DISPOSE");
@@ -757,6 +835,7 @@ namespace RenderHeads.Media.AVProVideo
 				PlayerSetup,
 				PlayerUpdate,
 				PlayerDestroy,
+				ExtractFrame,
 			}
 		}
 	}

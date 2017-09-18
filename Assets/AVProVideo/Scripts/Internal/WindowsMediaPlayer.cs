@@ -1,5 +1,5 @@
 ﻿#if UNITY_STANDALONE_WIN || UNITY_EDITOR_WIN || UNITY_WSA_10_0 || UNITY_WINRT_8_1 || UNITY_WSA
-#if UNITY_5
+#if UNITY_5 || UNITY_5_4_OR_NEWER
 	#if !UNITY_5_0 && !UNITY_5_1
 		#define AVPROVIDEO_ISSUEPLUGINEVENT_UNITY52
 	#endif
@@ -13,7 +13,10 @@
 
 using UnityEngine;
 using System.Runtime.InteropServices;
-using System.Threading;
+
+#if NETFX_CORE
+using Windows.Storage.Streams;
+#endif
 
 //-----------------------------------------------------------------------------
 // Copyright 2015-2017 RenderHeads Ltd.  All rights reserverd.
@@ -23,6 +26,7 @@ namespace RenderHeads.Media.AVProVideo
 {
 	public sealed partial class WindowsMediaPlayer : BaseMediaPlayer
 	{
+		private bool		_forceAudioResample = true;
 		private bool		_useUnityAudio = false;
 		private string		_audioDeviceOutputName = string.Empty;
 
@@ -30,6 +34,7 @@ namespace RenderHeads.Media.AVProVideo
 		private bool		_isPaused = false;
 		private bool		_audioMuted = false;
 		private float		_volume = 1.0f;
+		private float		_balance = 0.0f;
 		private bool		_bLoop = false;
 		private bool		_canPlay = false;
 		private bool		_hasMetaData = false;
@@ -48,6 +53,7 @@ namespace RenderHeads.Media.AVProVideo
 		private Windows.VideoApi	_videoApi = Windows.VideoApi.MediaFoundation;
 		private bool		_useHardwareDecoding = true;
 		private bool		_useTextureMips = false;
+		private bool		_useLowLatency = false;
 		private int			_queueSetAudioTrackIndex = -1;
 		private bool		_supportsLinearColorSpace = true;
 
@@ -57,9 +63,14 @@ namespace RenderHeads.Media.AVProVideo
 		private static bool _isInitialised = false;
 		private static string _version = "Plug-in not yet initialised";
 
+
 #if AVPROVIDEO_ISSUEPLUGINEVENT_UNITY52
 		private static System.IntPtr _nativeFunction_UpdateAllTextures;
 		private static System.IntPtr _nativeFunction_FreeTextures;
+		private static System.IntPtr _nativeFunction_ExtractFrame;
+#endif
+#if AVPROVIDEO_FIXREGRESSION_TEXTUREQUALITY_UNITY542
+		private int _textureQuality = QualitySettings.masterTextureLimit;
 #endif
 
 		public static void InitialisePlatform()
@@ -76,6 +87,7 @@ namespace RenderHeads.Media.AVProVideo
 #if AVPROVIDEO_ISSUEPLUGINEVENT_UNITY52
 					_nativeFunction_UpdateAllTextures = Native.GetRenderEventFunc_UpdateAllTextures();
 					_nativeFunction_FreeTextures = Native.GetRenderEventFunc_FreeTextures();
+					_nativeFunction_ExtractFrame = Native.GetRenderEventFunc_WaitForNewFrame();
 #endif
 				}
 			}
@@ -86,18 +98,25 @@ namespace RenderHeads.Media.AVProVideo
 			Native.Deinit();
 		}
 
-		public WindowsMediaPlayer(Windows.VideoApi videoApi, bool useHardwareDecoding, bool useTextureMips, string audioDeviceOutputName, bool useUnityAudio)
+		public override int GetNumAudioChannels()
 		{
-			SetOptions(videoApi, useHardwareDecoding, useTextureMips, audioDeviceOutputName, useUnityAudio);
+			return Native.GetAudioChannelCount(_instance);
 		}
 
-		public void SetOptions(Windows.VideoApi videoApi, bool useHardwareDecoding, bool useTextureMips, string audioDeviceOutputName, bool useUnityAudio)
+		public WindowsMediaPlayer(Windows.VideoApi videoApi, bool useHardwareDecoding, bool useTextureMips, bool useLowLatency, string audioDeviceOutputName, bool useUnityAudio, bool forceResample)
+		{
+			SetOptions(videoApi, useHardwareDecoding, useTextureMips, useLowLatency, audioDeviceOutputName, useUnityAudio, forceResample);
+		}
+
+		public void SetOptions(Windows.VideoApi videoApi, bool useHardwareDecoding, bool useTextureMips, bool useLowLatency, string audioDeviceOutputName, bool useUnityAudio, bool forceResample)
 		{
 			_videoApi = videoApi;
 			_useHardwareDecoding = useHardwareDecoding;
 			_useTextureMips = useTextureMips;
+			_useLowLatency = useLowLatency;
 			_audioDeviceOutputName = audioDeviceOutputName;
 			_useUnityAudio = useUnityAudio;
+			_forceAudioResample = forceResample;
 		}
 
 		public override string GetVersion()
@@ -105,11 +124,11 @@ namespace RenderHeads.Media.AVProVideo
 			return _version;
 		}
 
-		public override bool OpenVideoFromFile(string path, long offset)
+		public override bool OpenVideoFromFile(string path, long offset, string httpHeaderJson)
 		{
 			CloseVideo();
 
-			_instance = Native.OpenSource(_instance, path, (int)_videoApi, _useHardwareDecoding, _useTextureMips, _audioDeviceOutputName, _useUnityAudio);
+			_instance = Native.OpenSource(_instance, path, (int)_videoApi, _useHardwareDecoding, _useTextureMips, _useLowLatency, _audioDeviceOutputName, _useUnityAudio, _forceAudioResample, AudioSettings.outputSampleRate);
 
 			if (_instance == System.IntPtr.Zero)
 			{
@@ -121,6 +140,41 @@ namespace RenderHeads.Media.AVProVideo
 
 			return true;
 		}
+
+		public override bool OpenVideoFromBuffer(byte[] buffer)
+		{
+			CloseVideo();
+
+			_instance = Native.OpenSourceFromBuffer(_instance, buffer, (ulong)buffer.Length, (int)_videoApi, _useHardwareDecoding, _useTextureMips, _useLowLatency, _audioDeviceOutputName, _useUnityAudio);
+
+			if (_instance == System.IntPtr.Zero)
+			{
+				return false;
+			}
+
+			Native.SetUnityAudioEnabled(_instance, _useUnityAudio);
+
+			return true;
+		}
+
+#if NETFX_CORE
+		public override bool OpenVideoFromFile(IRandomAccessStream ras, string path, long offset, string httpHeaderJson)
+		{
+			CloseVideo();
+
+			_instance = Native.OpenSourceFromStream(_instance, ras, path, (int)_videoApi, _useHardwareDecoding, _useTextureMips, _useLowLatency, _audioDeviceOutputName, _useUnityAudio, _forceAudioResample, AudioSettings.outputSampleRate);
+
+			if (_instance == System.IntPtr.Zero)
+			{
+				DisplayLoadFailureSuggestion(path);
+				return false;
+			}
+
+			Native.SetUnityAudioEnabled(_instance, _useUnityAudio);
+
+			return true;
+		}
+#endif
 
 		private void DisplayLoadFailureSuggestion(string path)
 		{
@@ -143,6 +197,8 @@ namespace RenderHeads.Media.AVProVideo
 			_isPlaying = false;
 			_bLoop = false;
 			_audioMuted = false;
+			_volume = 1f;
+			_balance = 0f;
 			_lastFrameCount = 0;
 			_displayRate = 0f;
 			_displayRateTimer = 0f;
@@ -365,6 +421,17 @@ namespace RenderHeads.Media.AVProVideo
 			return _volume;
 		}
 
+		public override void SetBalance(float balance)
+		{
+			_balance = balance;
+			Native.SetBalance(_instance, balance);
+		}
+
+		public override float GetBalance()
+		{
+			return _balance;
+		}
+
 		public override int GetAudioTrackCount()
 		{
 			return Native.GetAudioTrackCount(_instance);
@@ -430,6 +497,24 @@ namespace RenderHeads.Media.AVProVideo
 			return 0;
 		}
 
+		public override bool WaitForNextFrame(Camera dummyCamera, int previousFrameCount)
+		{
+			// Mark as extracting
+			Native.StartExtractFrame(_instance);
+
+			// Queue up render thread event to wait for the new frame
+			IssueRenderThreadEvent(Native.RenderThreadEvent.WaitForNewFrame);
+
+			// Force render thread to run
+			dummyCamera.Render();
+
+			// Wait for the frame to change
+			Native.WaitForExtract(_instance);
+
+			// Return whether the frame changed
+			return (previousFrameCount != Native.GetTextureFrameCount(_instance));
+		}
+
 		public override void Update()
 		{
 			Native.Update(_instance);
@@ -474,7 +559,7 @@ namespace RenderHeads.Media.AVProVideo
 								// Note: If the Unity editor Build platform isn't set to Windows then maxTextureSize will not be correct
 								if (Mathf.Max(_width, _height) > SystemInfo.maxTextureSize)
 								{
-									Debug.LogError(string.Format("[AVProVideo] Video dimensions ({0}x{1}) larger than maxTextureSize ({2})", _width, _height, SystemInfo.maxTextureSize));
+									Debug.LogError(string.Format("[AVProVideo] Video dimensions ({0}x{1}) larger than maxTextureSize ({2} for current build target)", _width, _height, SystemInfo.maxTextureSize));
 									_width = _height = 0;
 									_hasVideo = false;
 								}
@@ -567,16 +652,22 @@ namespace RenderHeads.Media.AVProVideo
 					}
 				}
 
-#if AVPROVIDEO_FIXREGRESSION_TEXTUREQUALITY_UNITY542 && !AVPROVIDEO_IGNORE_FIXREGRESSION_TEXTUREQUALITY_UNITY542
+#if AVPROVIDEO_FIXREGRESSION_TEXTUREQUALITY_UNITY542
 				// In Unity 5.4.2 and above the video texture turns black when changing the TextureQuality in the Quality Settings
 				// The code below gets around this issue.  A bug report has been sent to Unity.  So far we have tested and replicated the
 				// "bug" in Windows only, but a user has reported it in Android too.  
 				// Texture.GetNativeTexturePtr() must sync with the rendering thread, so this is a large performance hit!
-				if (_texture != null && _nativeTexture != System.IntPtr.Zero && _texture.GetNativeTexturePtr() == System.IntPtr.Zero)
+				if(_textureQuality != QualitySettings.masterTextureLimit)
 				{
-					//Debug.Log("RECREATING");
-					_texture.UpdateExternalTexture(_nativeTexture);
+					if (_texture != null && _nativeTexture != System.IntPtr.Zero && _texture.GetNativeTexturePtr() == System.IntPtr.Zero)
+					{
+						//Debug.Log("RECREATING");
+						_texture.UpdateExternalTexture(_nativeTexture);
+					}
+
+					_textureQuality = QualitySettings.masterTextureLimit;
 				}
+				
 #endif
 
 				// Check if a new texture has to be created
@@ -669,6 +760,10 @@ namespace RenderHeads.Media.AVProVideo
 			{
 				GL.IssuePluginEvent(_nativeFunction_FreeTextures, 0);
 			}
+			else if (renderEvent == Native.RenderThreadEvent.WaitForNewFrame)
+			{
+				GL.IssuePluginEvent(_nativeFunction_ExtractFrame, 0);
+			}
 #else
 			GL.IssuePluginEvent(Native.PluginID | (int)renderEvent);
 #endif
@@ -679,6 +774,19 @@ namespace RenderHeads.Media.AVProVideo
 			return System.Runtime.InteropServices.Marshal.PtrToStringAnsi(Native.GetPluginVersion());
 		}
 
+#if AVPROVIDEO_FIXREGRESSION_TEXTUREQUALITY_UNITY542
+		public override void OnEnable()
+		{
+			base.OnEnable();
+
+			if (_texture != null && _nativeTexture != System.IntPtr.Zero && _texture.GetNativeTexturePtr() == System.IntPtr.Zero)
+			{
+				_texture.UpdateExternalTexture(_nativeTexture);
+			}
+			_textureQuality = QualitySettings.masterTextureLimit;
+		}
+#endif
+
 		private struct Native
 		{
 			public const int PluginID = 0xFA60000;
@@ -687,6 +795,7 @@ namespace RenderHeads.Media.AVProVideo
 			{
 				UpdateAllTextures,
 				FreeTextures,
+				WaitForNewFrame,
 			}
 
 			// Global
@@ -712,7 +821,16 @@ namespace RenderHeads.Media.AVProVideo
 			// Open and Close
 
 			[DllImport("AVProVideo")]
-			public static extern System.IntPtr OpenSource(System.IntPtr instance, [MarshalAs(UnmanagedType.LPWStr)]string path, int videoApiIndex, bool useHardwareDecoding, bool generateTextureMips, [MarshalAs(UnmanagedType.LPWStr)]string forceAudioOutputDeviceName, bool useUnityAudio);
+			public static extern System.IntPtr OpenSource(System.IntPtr instance, [MarshalAs(UnmanagedType.LPWStr)]string path, int videoApiIndex, bool useHardwareDecoding, bool generateTextureMips, bool useLowLatency, [MarshalAs(UnmanagedType.LPWStr)]string forceAudioOutputDeviceName, bool useUnityAudio, bool forceResample, int sampleRate);
+
+			[DllImport("AVProVideo")]
+			public static extern System.IntPtr OpenSourceFromBuffer(System.IntPtr instance, byte[] buffer, ulong bufferLength, int videoApiIndex, bool useHardwareDecoding, bool generateTextureMips, bool useLowLatency, [MarshalAs(UnmanagedType.LPWStr)]string forceAudioOutputDeviceName, bool useUnityAudio);
+
+
+#if NETFX_CORE
+			[DllImport("AVProVideo")]
+			public static extern System.IntPtr OpenSourceFromStream(System.IntPtr instance, IRandomAccessStream ras, [MarshalAs(UnmanagedType.LPWStr)]string path, int videoApiIndex, bool useHardwareDecoding, bool generateTextureMips, bool useLowLatency, [MarshalAs(UnmanagedType.LPWStr)]string forceAudioOutputDeviceName, bool useUnityAudio, bool forceResample, int sampleRate);
+#endif
 
 			[DllImport("AVProVideo")]
 			public static extern void CloseSource(System.IntPtr instance);
@@ -738,6 +856,9 @@ namespace RenderHeads.Media.AVProVideo
 
 			[DllImport("AVProVideo")]
 			public static extern void SetVolume(System.IntPtr instance, float volume);
+
+			[DllImport("AVProVideo")]
+			public static extern void SetBalance(System.IntPtr instance, float volume);
 
 			[DllImport("AVProVideo")]
 			public static extern void SetLooping(System.IntPtr instance, bool looping);
@@ -833,6 +954,12 @@ namespace RenderHeads.Media.AVProVideo
 			[DllImport("AVProVideo")]
 			public static extern int GetBufferedRanges(System.IntPtr instance, float[] timeArray, int arrayCount);
 
+			[DllImport("AVProVideo")]
+			public static extern void StartExtractFrame(System.IntPtr instance);
+
+			[DllImport("AVProVideo")]
+			public static extern void WaitForExtract(System.IntPtr instance);
+
 			// Update and Rendering
 
 			[DllImport("AVProVideo")]
@@ -859,6 +986,9 @@ namespace RenderHeads.Media.AVProVideo
 
 			[DllImport("AVProVideo")]
 			public static extern System.IntPtr GetRenderEventFunc_FreeTextures();
+
+			[DllImport("AVProVideo")]
+			public static extern System.IntPtr GetRenderEventFunc_WaitForNewFrame();
 #endif
 
 			// Audio
@@ -868,6 +998,9 @@ namespace RenderHeads.Media.AVProVideo
 
 			[DllImport("AVProVideo")]
 			public static extern void GrabAudio(System.IntPtr instance, float[] buffer, int floatCount, int channelCount);
+
+			[DllImport("AVProVideo")]
+			public static extern int GetAudioChannelCount(System.IntPtr instance);
 		}
 	}
 }

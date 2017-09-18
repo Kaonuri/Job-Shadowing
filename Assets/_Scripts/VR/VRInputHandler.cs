@@ -40,14 +40,14 @@ public class VRInputHandler : MonoBehaviour
     {
         SwipeDirection swipe = SwipeDirection.NONE;
 
-        if (AirVRInput.GetButtonDown(airVRCameraRig, AirVRInput.Touchpad.Button.Touch) || Input.GetMouseButtonDown(0))
+        if (AirVRInput.GetDown(airVRCameraRig, AirVRInput.Touchpad.Button.Touch) || Input.GetMouseButtonDown(0))
         {
             touchDownPosition = new Vector2(Input.mousePosition.x, Input.mousePosition.y);
             if (OnDown != null)
                 OnDown();
         }
         
-        if (AirVRInput.GetButtonUp(airVRCameraRig, AirVRInput.Touchpad.Button.Touch) || Input.GetMouseButtonUp(0))
+        if (AirVRInput.GetUp(airVRCameraRig, AirVRInput.Touchpad.Button.Touch) || Input.GetMouseButtonUp(0))
         {
             touchUpPosition = new Vector2(Input.mousePosition.x, Input.mousePosition.y);
 
@@ -78,7 +78,7 @@ public class VRInputHandler : MonoBehaviour
             lastMouseUpTime = Time.time;
         }
 
-        if(AirVRInput.GetButtonDown(airVRCameraRig, AirVRInput.Touchpad.Button.BackButton) || Input.GetKeyDown(KeyCode.Escape))
+        if(AirVRInput.GetDown(airVRCameraRig, AirVRInput.Touchpad.Button.Back) || Input.GetKeyDown(KeyCode.Escape))
         {
             if (OnCancel != null)
                 OnCancel();

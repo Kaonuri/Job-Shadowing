@@ -1,4 +1,8 @@
-﻿using UnityEngine;
+﻿#if UNITY_5_4_OR_NEWER || (UNITY_5 && !UNITY_5_0)
+	#define UNITY_HELPATTRIB
+#endif
+
+using UnityEngine;
 
 //-----------------------------------------------------------------------------
 // Copyright 2015-2017 RenderHeads Ltd.  All rights reserverd.
@@ -13,12 +17,26 @@ namespace RenderHeads.Media.AVProVideo
 	/// </summary>
 	[RequireComponent(typeof(AudioSource))]
 	[AddComponentMenu("AVPro Video/Audio Output", 400)]
+#if UNITY_HELPATTRIB
+	[HelpURL("http://renderheads.com/product/avpro-video/")]
+#endif
 	public class AudioOutput : MonoBehaviour
 	{
+		public enum AudioOutputMode
+		{
+			Single,
+			Multiple
+		}
+
+		public AudioOutputMode _audioOutputMode = AudioOutputMode.Multiple;
+
 		[SerializeField]
 		private MediaPlayer _mediaPlayer;
 
 		private AudioSource _audioSource;
+
+		[HideInInspector]
+		public int _channelMask = -1;
 
 		void Awake()
 		{
@@ -28,30 +46,10 @@ namespace RenderHeads.Media.AVProVideo
 		void Start()
 		{
 			ChangeMediaPlayer(_mediaPlayer);
-#if !UNITY_5
-			Debug.LogWarning("[AVProVideo] AudioOutput component requires Unity 5.x", this);
+#if (!UNITY_5 && !UNITY_5_4_OR_NEWER)
+			Debug.LogWarning("[AVProVideo] AudioOutput component requires Unity 5.x or above", this);
 #endif
 		}
-
-		/*
-		void OnEnable()
-		{
-			if (_audioSource != null)
-			{
-				if (_mediaPlayer != null && _mediaPlayer.Control != null && _mediaPlayer.Control.IsPlaying())
-				{
-					_audioSource.Play();
-				}
-			}
-		}
-
-		void OnDisable()
-		{
-			if (_audioSource != null)
-			{
-				_audioSource.Stop();
-			}
-		}*/
 
 		void OnDestroy()
 		{
@@ -111,14 +109,11 @@ namespace RenderHeads.Media.AVProVideo
 			}
 		}
 
-#if UNITY_5
+#if (UNITY_5 || UNITY_5_4_OR_NEWER)
 #if UNITY_STANDALONE_WIN || UNITY_EDITOR_WIN || UNITY_WSA_10_0 || UNITY_WINRT_8_1
 		void OnAudioFilterRead(float[] data, int channels)
 		{
-			if(_mediaPlayer != null && _mediaPlayer.Control != null && _mediaPlayer.Control.IsPlaying())
-			{
-				_mediaPlayer.Control.GrabAudio(data, data.Length, channels);
-			}
+			AudioOutputManager.Instance.RequestAudio(this, _mediaPlayer, data, _channelMask, channels, _audioOutputMode);
 		}
 #endif
 #endif

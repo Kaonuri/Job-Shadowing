@@ -1,4 +1,8 @@
-﻿using UnityEngine;
+﻿#if UNITY_5_4_OR_NEWER || (UNITY_5 && !UNITY_5_0)
+	#define UNITY_HELPATTRIB
+#endif
+
+using UnityEngine;
 using UnityEngine.UI;
 
 //-----------------------------------------------------------------------------
@@ -11,6 +15,9 @@ namespace RenderHeads.Media.AVProVideo
 	/// Update uGUI Text element with subtitle text as it plays from the MediaPlayer
 	/// </summary>
 	[AddComponentMenu("AVPro Video/Subtitles uGUI", 201)]
+#if UNITY_HELPATTRIB
+	[HelpURL("http://renderheads.com/product/avpro-video/")]
+#endif
 	public class SubtitlesUGUI : MonoBehaviour
 	{
 		[SerializeField]

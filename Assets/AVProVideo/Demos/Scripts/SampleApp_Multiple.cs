@@ -1,5 +1,5 @@
-﻿#if UNITY_4_6 || UNITY_4_7 || UNITY_4_8 || UNITY_5
-#define UNITY_FEATURE_UGUI
+﻿#if UNITY_4_6 || UNITY_4_7 || UNITY_4_8 || UNITY_5 || UNITY_5_4_OR_NEWER
+	#define UNITY_FEATURE_UGUI
 #endif
 
 using UnityEngine;

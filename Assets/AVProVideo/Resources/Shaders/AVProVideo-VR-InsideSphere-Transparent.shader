@@ -1,16 +1,20 @@
-﻿Shader "AVProVideo/VR/InsideSphere Unlit Transparent(stereo+color+fog+alpha)"
+﻿// Upgrade NOTE: replaced 'mul(UNITY_MATRIX_MVP,*)' with 'UnityObjectToClipPos(*)'
+
+Shader "AVProVideo/VR/InsideSphere Unlit Transparent(stereo+color+fog+alpha)"
 {
     Properties
     {
-        _MainTex ("Texture", 2D) = "white" {}
+        _MainTex ("Texture", 2D) = "black" {}
 		_Color("Main Color", Color) = (1,1,1,1)
 
-		[KeywordEnum(None, Top_Bottom, Left_Right)] Stereo ("Stereo Mode", Float) = 0
+		[KeywordEnum(None, Top_Bottom, Left_Right, Custom_UV)] Stereo ("Stereo Mode", Float) = 0
 		[KeywordEnum(None, Top_Bottom, Left_Right)] AlphaPack("Alpha Pack", Float) = 0
 		[Toggle(STEREO_DEBUG)] _StereoDebug ("Stereo Debug Tinting", Float) = 0
 		[Toggle(HIGH_QUALITY)] _HighQuality ("High Quality", Float) = 0
 		[Toggle(APPLY_GAMMA)] _ApplyGamma("Apply Gamma", Float) = 0
-		//[Toggle(GOOGLEVR)] _GoogleVr("Google VR", Float) = 0
+		_EdgeFeather("Edge Feather", Range (0, 1)) = 0
+	
+
     }
     SubShader
     {
@@ -36,12 +40,15 @@
 			//#define HIGH_QUALITY 1
 
 			#pragma multi_compile_fog
-			#pragma multi_compile MONOSCOPIC STEREO_TOP_BOTTOM STEREO_LEFT_RIGHT
+			#pragma multi_compile MONOSCOPIC STEREO_TOP_BOTTOM STEREO_LEFT_RIGHT STEREO_CUSTOM_UV
 			#pragma multi_compile ALPHAPACK_NONE ALPHAPACK_TOP_BOTTOM ALPHAPACK_LEFT_RIGHT
-			#pragma multi_compile __ STEREO_DEBUG
-			#pragma multi_compile __ HIGH_QUALITY
-			#pragma multi_compile __ APPLY_GAMMA
-			//#pragma multi_compile __ GOOGLEVR
+
+			// TODO: Change XX_OFF to __ for Unity 5.0 and above
+			// this was just added for Unity 4.x compatibility as __ causes
+			// Android and iOS builds to fail the shader
+			#pragma multi_compile STEREO_DEBUG_OFF STEREO_DEBUG
+			#pragma multi_compile HIGH_QUALITY_OFF HIGH_QUALITY
+			#pragma multi_compile APPLY_GAMMA_OFF APPLY_GAMMA
 
             struct appdata
             {
@@ -50,6 +57,9 @@
 				float3 normal : NORMAL;
 #else
                 float2 uv : TEXCOORD0; // texture coordinate			
+#if STEREO_CUSTOM_UV
+				float2 uv2 : TEXCOORD1;	// Custom uv set for right eye (left eye is in TEXCOORD0)
+#endif
 #endif
 				
             };
@@ -60,7 +70,7 @@
 #if HIGH_QUALITY
 				float3 normal : TEXCOORD0;
 				
-#if STEREO_TOP_BOTTOM | STEREO_LEFT_RIGHT
+#if STEREO_TOP_BOTTOM || STEREO_LEFT_RIGHT
 				float4 scaleOffset : TEXCOORD1; // texture coordinate
 #if UNITY_VERSION >= 500
 				UNITY_FOG_COORDS(2)
@@ -87,15 +97,12 @@
 			uniform float4 _MainTex_TexelSize;
 			uniform float3 _cameraPosition;
 			uniform fixed4 _Color;
+			uniform float _EdgeFeather;
 
             v2f vert (appdata v)
             {
                 v2f o;
-#if UNITY_VERSION >= 540
-				o.vertex = UnityObjectToClipPos(v.vertex.xyz);
-#else
-				o.vertex = mul(UNITY_MATRIX_MVP, v.vertex);
-#endif
+				o.vertex = UnityObjectToClipPos(v.vertex);
 #if !HIGH_QUALITY
 				o.uv.zw = 0.0;
 				o.uv.xy = TRANSFORM_TEX(v.uv, _MainTex);
@@ -104,20 +111,26 @@
 
 				
 
-#if STEREO_TOP_BOTTOM | STEREO_LEFT_RIGHT
+#if STEREO_TOP_BOTTOM || STEREO_LEFT_RIGHT
 				float4 scaleOffset = GetStereoScaleOffset(IsStereoEyeLeft(_cameraPosition, UNITY_MATRIX_V[0].xyz));
 
 				#if !HIGH_QUALITY
 				o.uv.xy *= scaleOffset.xy;
 				o.uv.xy += scaleOffset.zw;
+				
 				#else
 				o.scaleOffset = scaleOffset;
 				#endif
-
+#elif STEREO_CUSTOM_UV && !HIGH_QUALITY
+				if (!IsStereoEyeLeft(_cameraPosition, UNITY_MATRIX_V[0].xyz))
+				{
+					o.uv.xy = TRANSFORM_TEX(v.uv2, _MainTex);
+					o.uv.xy = float2(1.0 - o.uv.x, o.uv.y);
+				}
 #endif
 				
 #if !HIGH_QUALITY
-#if ALPHAPACK_TOP_BOTTOM | ALPHAPACK_LEFT_RIGHT
+#if ALPHAPACK_TOP_BOTTOM || ALPHAPACK_LEFT_RIGHT
 				o.uv = OffsetAlphaPackingUV(_MainTex_TexelSize.xy, o.uv.xy, _MainTex_ST.y < 0.0);
 #endif
 #endif
@@ -139,7 +152,7 @@
 
             
             fixed4 frag (v2f i) : SV_Target
-            {
+			{
 				float4 uv = 0;
 
 #if HIGH_QUALITY
@@ -164,13 +177,13 @@
 				uv = i.uv;
 #endif
 
-                fixed4 col = tex2D(_MainTex, uv.xy);
+				fixed4 col = tex2D(_MainTex, uv.xy);
 
 #if APPLY_GAMMA
 				col.rgb = GammaToLinear(col.rgb);
 #endif
 
-#if ALPHAPACK_TOP_BOTTOM | ALPHAPACK_LEFT_RIGHT
+#if ALPHAPACK_TOP_BOTTOM || ALPHAPACK_LEFT_RIGHT
 				// Sample the alpha
 				fixed4 alpha = tex2D(_MainTex, uv.zw);
 #if APPLY_GAMMA
@@ -193,8 +206,50 @@
 				UNITY_APPLY_FOG(i.fogCoord, col);
 #endif
 
-                return col;
-            }
+				// Apply edge feathering based on UV mapping - this is useful if you're using a hemisphere mesh for 180 degree video and want to have soft edges
+				if (_EdgeFeather > 0.0)
+				{
+					float4 featherDirection = float4(0.0, 0.0, 1.0, 1.0);
+					
+#if STEREO_TOP_BOTTOM 
+					if (uv.y > 0.5)
+					{
+						featherDirection.y = 0.5;
+					}
+					else
+					{
+						featherDirection.w = 0.5;
+					}
+#endif
+
+#if STEREO_LEFT_RIGHT
+					if (uv.x > 0.5)
+					{
+						featherDirection.x = 0.5;
+					}
+					else
+					{
+						featherDirection.z = 0.5;
+					}
+#endif
+
+
+#if ALPHAPACK_TOP_BOTTOM
+					featherDirection.w *= 0.5;
+#endif
+
+#if ALPHAPACK_LEFT_RIGHT
+					featherDirection.z *= 0.5;
+#endif
+
+					float d = min(uv.x - featherDirection.x, min((uv.y - featherDirection.y), min(featherDirection.z - uv.x, featherDirection.w - uv.y)));
+					float a = smoothstep(0.0, _EdgeFeather, d);
+					col.a *= a;
+				}
+
+				return col;
+
+			}
             ENDCG
         }
     }

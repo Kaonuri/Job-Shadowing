@@ -19,6 +19,7 @@ namespace RenderHeads.Media.AVProVideo.Demos
 		public bool _accurateSeek = false;
 		public int _timeoutMs = 250;
 		public GUISkin _skin;
+		public bool _asyncExtract = false;
 
 #if AVPRO_FILESYSTEM_SUPPORT
 		public bool _saveToJPG = false;
@@ -75,7 +76,19 @@ namespace RenderHeads.Media.AVProVideo.Demos
 				Texture2D.Destroy(_texture);
 				_texture = null;
 			}
-			_texture = new Texture2D(info.GetVideoWidth(), info.GetVideoHeight(), TextureFormat.ARGB32, false);
+
+			int textureWidth = info.GetVideoWidth();
+			int textureHeight = info.GetVideoHeight();
+#if UNITY_EDITOR_OSX || UNITY_STANDALONE_OSX || UNITY_IPHONE || UNITY_IOS || UNITY_TVOS
+			Orientation ori = Helper.GetOrientation(_mediaPlayer.Info.GetTextureTransform());
+			if (ori == Orientation.Portrait || ori == Orientation.PortraitFlipped)
+			{
+				textureWidth = info.GetVideoHeight();
+				textureHeight = info.GetVideoWidth();
+			}
+#endif
+
+			_texture = new Texture2D(textureWidth, textureHeight, TextureFormat.ARGB32, false);
 
 			_timeStepSeconds = (_mediaPlayer.Info.GetDurationMs() / 1000f) / (float)NumFrames;
 
@@ -108,19 +121,15 @@ namespace RenderHeads.Media.AVProVideo.Demos
 			}
 		}
 
-		private void ExtractNextFrame()
+		private void ProcessExtractedFrame(Texture2D texture)
 		{
-			// Extract the frame to Texture2D
-			float timeSeconds = _frameIndex * _timeStepSeconds;
-			_texture = _mediaPlayer.ExtractFrame(_texture, timeSeconds, _accurateSeek, _timeoutMs);
-
 #if AVPRO_FILESYSTEM_SUPPORT
 			// Save frame to JPG
 			if (_saveToJPG)
 			{
 				string filePath = _filenamePrefix + "-" + _frameIndex + ".jpg";
 				Debug.Log("Writing frame to file: " + filePath);
-				System.IO.File.WriteAllBytes(filePath, _texture.EncodeToJPG());
+				System.IO.File.WriteAllBytes(filePath, texture.EncodeToJPG());
 			}
 #endif
 
@@ -132,15 +141,31 @@ namespace RenderHeads.Media.AVProVideo.Demos
 
 			float thumbSpace = 8f;
 			float thumbWidth = ((float)_displaySheet.width / (float)NumFrames) - thumbSpace;
-			float thumbHeight = thumbWidth / ((float)_texture.width / (float)_texture.height);
+			float thumbHeight = thumbWidth / ((float)texture.width / (float)texture.height);
 			float thumbPos = ((thumbWidth + thumbSpace) * (float)_frameIndex);
 
 			Rect destRect = new Rect(thumbPos, (_displaySheet.height / 2f) - (thumbHeight / 2f), thumbWidth, thumbHeight);
 
-			Graphics.DrawTexture(destRect, _texture, sourceRect, 0, 0, 0, 0);
+			Graphics.DrawTexture(destRect, texture, sourceRect, 0, 0, 0, 0);
 			RenderTexture.active = null;
 			GL.PopMatrix();
 			GL.InvalidateState();
+		}
+
+		private void ExtractNextFrame()
+		{
+			// Extract the frame to Texture2D
+			float timeSeconds = _frameIndex * _timeStepSeconds;
+
+			if (!_asyncExtract)
+			{
+				_texture = _mediaPlayer.ExtractFrame(_texture, timeSeconds, _accurateSeek, _timeoutMs);
+				ProcessExtractedFrame(_texture);
+			}
+			else
+			{
+				_mediaPlayer.ExtractFrameAsync(_texture, ProcessExtractedFrame, timeSeconds, _accurateSeek, _timeoutMs);
+			}
 		}
 
 		void OnGUI()

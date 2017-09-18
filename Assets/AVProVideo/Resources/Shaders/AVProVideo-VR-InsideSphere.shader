@@ -1,14 +1,17 @@
-﻿Shader "AVProVideo/VR/InsideSphere Unlit (stereo+fog)"
+// Upgrade NOTE: replaced 'mul(UNITY_MATRIX_MVP,*)' with 'UnityObjectToClipPos(*)'
+
+Shader "AVProVideo/VR/InsideSphere Unlit (stereo+fog)"
 {
     Properties
     {
-        _MainTex ("Texture", 2D) = "white" {}
+        _MainTex ("Texture", 2D) = "black" {}
+		_ChromaTex("Chroma", 2D) = "white" {}
 
-		[KeywordEnum(None, Top_Bottom, Left_Right)] Stereo ("Stereo Mode", Float) = 0
+		[KeywordEnum(None, Top_Bottom, Left_Right, Custom_UV)] Stereo ("Stereo Mode", Float) = 0
 		[Toggle(STEREO_DEBUG)] _StereoDebug ("Stereo Debug Tinting", Float) = 0
 		[Toggle(HIGH_QUALITY)] _HighQuality ("High Quality", Float) = 0
 		[Toggle(APPLY_GAMMA)] _ApplyGamma("Apply Gamma", Float) = 0
-		//[Toggle(GOOGLEVR)] _GoogleVr("Google VR", Float) = 0
+		[Toggle(USE_YPCBCR)] _UseYpCbCr("Use YpCbCr", Float) = 0
     }
     SubShader
     {
@@ -23,8 +26,8 @@
             CGPROGRAM
 			#include "UnityCG.cginc"
 			#include "AVProVideo.cginc"
-#if HIGH_QUALITY
-			//#pragma target 3.0
+#if HIGH_QUALITY || APPLY_GAMMA
+			#pragma target 3.0
 #endif
             #pragma vertex vert
             #pragma fragment frag
@@ -33,11 +36,15 @@
 			//#define HIGH_QUALITY 1
 
 			#pragma multi_compile_fog
-			#pragma multi_compile MONOSCOPIC STEREO_TOP_BOTTOM STEREO_LEFT_RIGHT
-			#pragma multi_compile __ STEREO_DEBUG
-			#pragma multi_compile __ HIGH_QUALITY
-			#pragma multi_compile __ APPLY_GAMMA
-			//#pragma multi_compile __ GOOGLEVR
+			#pragma multi_compile MONOSCOPIC STEREO_TOP_BOTTOM STEREO_LEFT_RIGHT STEREO_CUSTOM_UV
+
+			// TODO: Change XX_OFF to __ for Unity 5.0 and above
+			// this was just added for Unity 4.x compatibility as __ causes
+			// Android and iOS builds to fail the shader
+			#pragma multi_compile STEREO_DEBUG_OFF STEREO_DEBUG
+			#pragma multi_compile HIGH_QUALITY_OFF HIGH_QUALITY
+			#pragma multi_compile APPLY_GAMMA_OFF APPLY_GAMMA
+			#pragma multi_compile USE_YPCBCR_OFF USE_YPCBCR
 
             struct appdata
             {
@@ -46,6 +53,9 @@
 				float3 normal : NORMAL;
 #else
                 float2 uv : TEXCOORD0; // texture coordinate			
+#if STEREO_CUSTOM_UV
+				float2 uv2 : TEXCOORD1;	// Custom uv set for right eye (left eye is in TEXCOORD0)
+#endif
 #endif
 				
             };
@@ -80,6 +90,9 @@
             };
 
             uniform sampler2D _MainTex;
+#if USE_YPCBCR
+			uniform sampler2D _ChromaTex;
+#endif
 			uniform float4 _MainTex_ST;
 			uniform float3 _cameraPosition;
 
@@ -87,11 +100,7 @@
             {
                 v2f o;
                 
-#if UNITY_VERSION >= 540
-				o.vertex = UnityObjectToClipPos(v.vertex.xyz);
-#else
-				o.vertex = mul(UNITY_MATRIX_MVP, v.vertex);
-#endif
+				o.vertex = UnityObjectToClipPos(v.vertex);
 
 #if !HIGH_QUALITY
 				o.uv.xy = TRANSFORM_TEX(v.uv, _MainTex);
@@ -107,6 +116,12 @@
 				#else
 				o.scaleOffset = scaleOffset;
 				#endif
+#elif STEREO_CUSTOM_UV && !HIGH_QUALITY
+				if (!IsStereoEyeLeft(_cameraPosition, UNITY_MATRIX_V[0].xyz))
+				{
+					o.uv.xy = TRANSFORM_TEX(v.uv2, _MainTex);
+					o.uv.xy = float2(1.0 - o.uv.x, o.uv.y);
+				}
 #endif
 
 #if HIGH_QUALITY
@@ -147,9 +162,16 @@
 #else
 				uv = i.uv;
 #endif
-
+#if USE_YPCBCR
+	#if SHADER_API_METAL || SHADER_API_GLES || SHADER_API_GLES3
+				float3 ypcbcr = float3(tex2D(_MainTex, uv).r, tex2D(_ChromaTex, uv).rg);
+	#else
+				float3 ypcbcr = float3(tex2D(_MainTex, uv).r, tex2D(_ChromaTex, uv).ra);
+	#endif
+				fixed4 col = fixed4(Convert420YpCbCr8ToRGB(ypcbcr), 1.0);
+#else
                 fixed4 col = tex2D(_MainTex, uv);
-
+#endif
 #if APPLY_GAMMA
 				col.rgb = GammaToLinear(col.rgb);
 #endif

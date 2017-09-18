@@ -40,6 +40,7 @@ var AVProVideoWebGL = {
         _count++;
 
         var vid = document.createElement("video");
+
         var hasSetCanPlay = false;
         var playerIndex;
         var id = _count;
@@ -125,14 +126,6 @@ var AVProVideoWebGL = {
         }
 
         GLctx.bindTexture(GLctx.TEXTURE_2D, GL.textures[texture]);
-        //GLctx.pixelStorei(GLctx.UNPACK_FLIP_Y_WEBGL, true);
-        //GLctx.pixelStorei(GLctx.UNPACK_PREMULTIPLY_ALPHA_WEBGL, false);
-        //GLctx.texParameteri(GLctx.TEXTURE_2D, GLctx.TEXTURE_WRAP_S, GLctx.CLAMP_TO_EDGE);
-        //GLctx.texParameteri(GLctx.TEXTURE_2D, GLctx.TEXTURE_WRAP_T, GLctx.CLAMP_TO_EDGE);
-
-        //GLctx.texParameteri(GLctx.TEXTURE_2D, GLctx.TEXTURE_MIN_FILTER, GLctx.LINEAR);
-        //GLctx.texParameteri(GLctx.TEXTURE_2D, GLctx.TEXTURE_MAG_FILTER, GLctx.LINEAR);
-        //GLctx.texImage2D(GLctx.TEXTURE_2D, 0, GLctx.RGB, GLctx.RGB, GLctx.UNSIGNED_BYTE, _videos[playerIndex].video);
 
         GLctx.texSubImage2D(GLctx.TEXTURE_2D, 0, 0, 0, GLctx.RGBA, GLctx.UNSIGNED_BYTE, _videos[playerIndex].video);
     },
@@ -392,7 +385,17 @@ var AVProVideoWebGL = {
             return false;
         }
 
-        return Boolean(_videos[playerIndex].video.webkitVideoDecodedByteCount) || Boolean(_videos[playerIndex].video.videoTracks && _videos[playerIndex].video.videoTracks.length);
+        var isChrome = !!window.chrome && !!window.chrome.webstore;
+
+        if(isChrome){
+            return Boolean(_videos[playerIndex].video.webkitVideoDecodedByteCount);
+        }
+        
+        if(_videos[playerIndex].video.videoTracks){
+            return Boolean(_videos[playerIndex].video.videoTracks.length);
+        }
+        
+        return true;
     },
     AVPPlayerHasAudio__deps: ["videos", "hasVideos"],
     AVPPlayerHasAudio: function (playerIndex) {
@@ -448,6 +451,38 @@ var AVProVideoWebGL = {
         }
 
         return frameCount;
+    },
+    AVPPlayerGetNumBufferedTimeRanges__deps: ["videos, hasVideos"],
+    AVPPlayerGetNumBufferedTimeRanges: function(playerIndex){   
+        if (!_hasVideos(playerIndex)) {
+            return 0;
+        }
+
+        return _videos[playerIndex].video.buffered.length;
+    },
+    AVPPlayerGetTimeRangeStart__deps: ["videos, hasVideos"],
+    AVPPlayerGetTimeRangeStart: function(playerIndex, rangeIndex){
+        if (!_hasVideos(playerIndex)) {
+            return 0;
+        }
+
+        if(rangeIndex >= _videos[playerIndex].video.buffered.length){
+            return 0;
+        }
+
+        return _videos[playerIndex].video.buffered.start(rangeIndex);
+    },
+    AVPPlayerGetTimeRangeEnd__deps: ["videos, hasVideos"],
+    AVPPlayerGetTimeRangeEnd: function(playerIndex, rangeIndex){
+        if (!_hasVideos(playerIndex)) {
+            return 0;
+        }
+
+        if(rangeIndex >= _videos[playerIndex].video.buffered.length){
+            return 0;
+        }
+
+        return _videos[playerIndex].video.buffered.end(rangeIndex);
     }
 };
 

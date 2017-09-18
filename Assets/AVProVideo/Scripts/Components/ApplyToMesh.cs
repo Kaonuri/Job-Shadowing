@@ -1,5 +1,12 @@
 #if UNITY_EDITOR || UNITY_STANDALONE_OSX || UNITY_STANDALONE_WIN
 	#define UNITY_PLATFORM_SUPPORTS_LINEAR
+#elif UNITY_IOS || UNITY_ANDROID
+	#if UNITY_5_5_OR_NEWER || (UNITY_5 && !UNITY_5_0 && !UNITY_5_1 && !UNITY_5_2 && !UNITY_5_3 && !UNITY_5_4)
+		#define UNITY_PLATFORM_SUPPORTS_LINEAR
+	#endif
+#endif
+#if UNITY_5_4_OR_NEWER || (UNITY_5 && !UNITY_5_0)
+	#define UNITY_HELPATTRIB
 #endif
 
 using UnityEngine;
@@ -11,19 +18,106 @@ using UnityEngine;
 namespace RenderHeads.Media.AVProVideo
 {
 	[AddComponentMenu("AVPro Video/Apply To Mesh", 300)]
+#if UNITY_HELPATTRIB
+	[HelpURL("http://renderheads.com/product/avpro-video/")]
+#endif
 	public class ApplyToMesh : MonoBehaviour 
 	{
 		// TODO: add specific material / material index to target in the mesh if there are multiple materials
-		public Vector2 _offset = Vector2.zero;
-		public Vector2 _scale = Vector2.one;
-		public Renderer _mesh;
-		public MediaPlayer _media;
-		public Texture2D _defaultTexture;
+
+		[Header("Media Source")]
+
+		[SerializeField]
+		private MediaPlayer _media = null;
+
+		public MediaPlayer Player
+		{
+			get { return _media; }
+			set { if (_media != value) { _media = value; _isDirty = true; } }
+		}
+
+		[Tooltip("Default texture to display when the video texture is preparing")]
+		[SerializeField]
+		private Texture2D _defaultTexture = null;
+
+		public Texture2D DefaultTexture
+		{
+			get { return _defaultTexture; }
+			set { if (_defaultTexture != value) { _defaultTexture = value; _isDirty = true; } }
+		}
+
+		[Space(8f)]
+		[Header("Renderer Target")]
+
+		[SerializeField]
+		private Renderer _mesh = null;
+
+		public Renderer MeshRenderer
+		{
+			get { return _mesh; }
+			set { if (_mesh != value) { _mesh = value; _isDirty = true; } }
+		}
+
+		[SerializeField]
+		private string _texturePropertyName = "_MainTex";
+
+		public string TexturePropertyName
+		{
+			get { return _texturePropertyName; }
+			set
+			{
+				if (_texturePropertyName != value)
+				{
+					_texturePropertyName = value;
+#if UNITY_5_6_OR_NEWER
+					_propTexture = Shader.PropertyToID(_texturePropertyName);
+#endif
+					_isDirty = true;
+				}
+			}
+		}
+
+		[SerializeField]
+		private Vector2 _offset = Vector2.zero;
+
+		public Vector2 Offset
+		{
+			get { return _offset; }
+			set { if (_offset != value) { _offset = value; _isDirty = true; } }
+		}
+
+		[SerializeField]
+		private Vector2 _scale = Vector2.one;
+
+		public Vector2 Scale
+		{
+			get { return _scale; }
+			set { if (_scale != value) { _scale = value; _isDirty = true; } }
+		}
+
+		private bool _isDirty = false;
+		private Texture _lastTextureApplied;
+#if UNITY_5_6_OR_NEWER
+		private int _propTexture;
+#endif
+
 		private static int _propStereo;
 		private static int _propAlphaPack;
 		private static int _propApplyGamma;
 
-		void Awake()
+		private const string PropChromaTexName = "_ChromaTex";
+		private static int _propChromaTex;
+
+		private const string PropUseYpCbCrName = "_UseYpCbCr";
+		private static int _propUseYpCbCr;
+
+		public void ForceUpdate()
+		{
+			_isDirty = true;
+			LateUpdate();
+		}
+
+		private void Awake()
 		{
 			if (_propStereo == 0 || _propAlphaPack == 0)
 			{
@@ -31,32 +125,71 @@ namespace RenderHeads.Media.AVProVideo
 				_propAlphaPack = Shader.PropertyToID("AlphaPack");
 				_propApplyGamma = Shader.PropertyToID("_ApplyGamma");
 			}
+			if (_propChromaTex == 0)
+			{
+				_propChromaTex = Shader.PropertyToID(PropChromaTexName);
+			}
+			if (_propUseYpCbCr == 0)
+			{
+				_propUseYpCbCr = Shader.PropertyToID(PropUseYpCbCrName);
+			}
 		}
 
 		// We do a LateUpdate() to allow for any changes in the texture that may have happened in Update()
-		void LateUpdate()
+		private void LateUpdate()
 		{
 			bool applied = false;
+
+			// Try to apply texture from media
 			if (_media != null && _media.TextureProducer != null)
 			{
-				Texture texture = _media.TextureProducer.GetTexture();
+				Texture resamplerTex = _media.FrameResampler == null || _media.FrameResampler.OutputTexture == null ? null : _media.FrameResampler.OutputTexture[0];
+				Texture texture = _media.m_Resample ? resamplerTex : _media.TextureProducer.GetTexture(0);
 				if (texture != null)
 				{
-					ApplyMapping(texture, _media.TextureProducer.RequiresVerticalFlip());
+					// Check for changing texture
+					if (texture != _lastTextureApplied)
+					{
+						_isDirty = true;
+					}
+
+					if (_isDirty)
+					{
+						int planeCount = _media.m_Resample ? 1 : _media.TextureProducer.GetTextureCount();
+						for (int plane = 0; plane < planeCount; plane++)
+						{
+							Texture resamplerTexPlane = _media.FrameResampler == null || _media.FrameResampler.OutputTexture == null ? null : _media.FrameResampler.OutputTexture[plane];
+							texture = _media.m_Resample ? resamplerTexPlane : _media.TextureProducer.GetTexture(plane);
+							if (texture != null)
+							{
+								ApplyMapping(texture, _media.TextureProducer.RequiresVerticalFlip(), plane);
+							}
+						}
+					}
 					applied = true;
 				}
 			}
 
+			// If the media didn't apply a texture, then try to apply the default texture
 			if (!applied)
 			{
-				ApplyMapping(_defaultTexture, false);
+				if (_defaultTexture != _lastTextureApplied)
+				{
+					_isDirty = true;
+				}
+				if (_isDirty)
+				{
+					ApplyMapping(_defaultTexture, false);
+				}
 			}
 		}
 		
-		private void ApplyMapping(Texture texture, bool requiresYFlip)
+		private void ApplyMapping(Texture texture, bool requiresYFlip, int plane = 0)
 		{
 			if (_mesh != null)
 			{
+				_isDirty = false;
+
 				Material[] meshMaterials = _mesh.materials;
 				if (meshMaterials != null)
 				{
@@ -65,22 +198,74 @@ namespace RenderHeads.Media.AVProVideo
 						Material mat = meshMaterials[i];
 						if (mat != null)
 						{
-							mat.mainTexture = texture;
-
-							if (texture != null)
+							if (plane == 0)
 							{
-								if (requiresYFlip)
+#if UNITY_5_6_OR_NEWER
+								mat.SetTexture(_propTexture, texture);
+#else
+								mat.SetTexture(_texturePropertyName, texture);
+#endif
+
+								_lastTextureApplied = texture;
+
+								if (texture != null)
 								{
-									mat.mainTextureScale = new Vector2(_scale.x, -_scale.y);
-									mat.mainTextureOffset = Vector2.up + _offset;
-								}
-								else
-								{
-									mat.mainTextureScale = _scale;
-									mat.mainTextureOffset = _offset;
+#if UNITY_5_6_OR_NEWER
+									if (requiresYFlip)
+									{
+										mat.SetTextureScale(_propTexture, new Vector2(_scale.x, -_scale.y));
+										mat.SetTextureOffset(_propTexture, Vector2.up + _offset);
+									}
+									else
+									{
+										mat.SetTextureScale(_propTexture, _scale);
+										mat.SetTextureOffset(_propTexture, _offset);
+									}
+#else
+									if (requiresYFlip)
+									{
+										mat.SetTextureScale(_texturePropertyName, new Vector2(_scale.x, -_scale.y));
+										mat.SetTextureOffset(_texturePropertyName, Vector2.up + _offset);
+									}
+									else
+									{
+										mat.SetTextureScale(_texturePropertyName, _scale);
+										mat.SetTextureOffset(_texturePropertyName, _offset);
+									}
+#endif
 								}
 							}
-
+							else if (plane == 1)
+							{
+								if (mat.HasProperty(_propUseYpCbCr) && mat.HasProperty(_propChromaTex))
+								{
+									mat.EnableKeyword("USE_YPCBCR");
+									mat.SetTexture(_propChromaTex, texture);
+#if UNITY_5_6_OR_NEWER
+									if (requiresYFlip)
+									{
+										mat.SetTextureScale(_propChromaTex, new Vector2(_scale.x, -_scale.y));
+										mat.SetTextureOffset(_propChromaTex, Vector2.up + _offset);
+									}
+									else
+									{
+										mat.SetTextureScale(_propChromaTex, _scale);
+										mat.SetTextureOffset(_propChromaTex, _offset);
+									}
+#else
+									if (requiresYFlip)
+									{
+										mat.SetTextureScale(PropChromaTexName, new Vector2(_scale.x, -_scale.y));
+										mat.SetTextureOffset(PropChromaTexName, Vector2.up + _offset);
+									}
+									else
+									{
+										mat.SetTextureScale(PropChromaTexName, _scale);
+										mat.SetTextureOffset(PropChromaTexName, _offset);
+									}
+#endif
+								}
+							}
 
 							if (_media != null)
 							{
@@ -110,7 +295,7 @@ namespace RenderHeads.Media.AVProVideo
 			}
 		}
 
-		void OnEnable()
+		private void OnEnable()
 		{
 			if (_mesh == null)
 			{
@@ -120,14 +305,19 @@ namespace RenderHeads.Media.AVProVideo
 					Debug.LogWarning("[AVProVideo] No mesh renderer set or found in gameobject");
 				}
 			}
-			
+
+#if UNITY_5_6_OR_NEWER
+			_propTexture = Shader.PropertyToID(_texturePropertyName);
+#endif
+
+			_isDirty = true;
 			if (_mesh != null)
 			{
 				LateUpdate();
 			}
 		}
 		
-		void OnDisable()
+		private void OnDisable()
 		{
 			ApplyMapping(_defaultTexture, false);
 		}

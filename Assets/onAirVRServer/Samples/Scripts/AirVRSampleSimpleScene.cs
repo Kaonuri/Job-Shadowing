@@ -5,28 +5,30 @@ using System;
 using System.Collections.Generic;
 
 public class AirVRSampleSimpleScene : MonoBehaviour, AirVRCameraRigManager.EventHandler {
-    private float _remainingTimeToAllowToTravelScene;
+    private const string PointerSampleSceneName = "B. Event System (experimental)";
+
     private bool _sceneBeingUnloaded;
 
     public AirVRCameraRig cameraRig;
     public AudioSource music;
-    public string sceneNameToTravel;
+
+    private IEnumerator loadScene(string sceneName) {
+        yield return StartCoroutine(AirVRCameraFade.FadeAllCameras(this, false, 0.5f));
+        SceneManager.LoadScene(sceneName);
+    }
 
     void Awake() {
         AirVRCameraRigManager.managerOnCurrentScene.Delegate = this;
     }
 
-    void Start() {
-        _remainingTimeToAllowToTravelScene = 1.0f;
+    IEnumerator Start() {
+        yield return StartCoroutine(AirVRCameraFade.FadeAllCameras(this, true, 0.5f));
     }
 
     void Update() {
-        if (_remainingTimeToAllowToTravelScene >= 0.0f) {
-            _remainingTimeToAllowToTravelScene -= Time.deltaTime;
-        }
-        else if (Input.GetKeyDown(KeyCode.T) || AirVRInput.GetButtonDown(cameraRig, AirVRInput.Touchpad.Button.BackButton) || AirVRInput.GetButtonDown(cameraRig, AirVRInput.Gamepad.Button.B)) {
+        if (_sceneBeingUnloaded == false && AirVRInput.GetDown(cameraRig, AirVRInput.Touchpad.Button.Back)) {
             _sceneBeingUnloaded = true;
-            SceneManager.LoadScene(sceneNameToTravel);
+            StartCoroutine(loadScene(PointerSampleSceneName));
         }
     }
 
@@ -36,26 +38,21 @@ public class AirVRSampleSimpleScene : MonoBehaviour, AirVRCameraRigManager.Event
 
         if (selected) {
             AirVRSamplePlayer player = selected.GetComponentInParent<AirVRSamplePlayer>();
-            player.EnableMovement(true);
+            player.EnableInteraction(true);
 
             music.Play();
         }
     }
 
-    public void AirVRCameraRigActivated(AirVRCameraRig cameraRig) {
-        // do nothing
-    }
-
-    public void AirVRCameraRigDeactivated(AirVRCameraRig cameraRig) {
-        // do nothing
-    }
+    public void AirVRCameraRigActivated(AirVRCameraRig cameraRig) {}
+    public void AirVRCameraRigDeactivated(AirVRCameraRig cameraRig) {}
 
     public void AirVRCameraRigHasBeenUnbound(AirVRCameraRig cameraRig) {
         // NOTE : This event occurs in OnDestroy() of AirVRCameraRig during unloading scene.
         //        You should be careful because some objects in the scene might be destroyed already on this event.
         if (_sceneBeingUnloaded == false) {
             AirVRSamplePlayer player = cameraRig.GetComponentInParent<AirVRSamplePlayer>();
-            player.EnableMovement(false);
+            player.EnableInteraction(false);
             
             music.Stop();
         }

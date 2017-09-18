@@ -1,12 +1,13 @@
-﻿Shader "AVProVideo/VR/InsideSphere Unlit (stereo+fog) Stereo UV"
+﻿// Upgrade NOTE: replaced 'mul(UNITY_MATRIX_MVP,*)' with 'UnityObjectToClipPos(*)'
+
+Shader "AVProVideo/VR/InsideSphere Unlit (stereo+fog) Stereo UV"
 {
     Properties
     {
-        _MainTex ("Texture", 2D) = "white" {}
+        _MainTex ("Texture", 2D) = "black" {}
 
 		[Toggle(STEREO_DEBUG)] _StereoDebug ("Stereo Debug Tinting", Float) = 0
 		[Toggle(APPLY_GAMMA)] _ApplyGamma("Apply Gamma", Float) = 0
-		//[Toggle(GOOGLEVR)] _GoogleVr("Google VR", Float) = 0
     }
     SubShader
     {
@@ -29,9 +30,12 @@
 			//#define HIGH_QUALITY 1
 
 			#pragma multi_compile_fog
-			#pragma multi_compile __ STEREO_DEBUG
-			#pragma multi_compile __ APPLY_GAMMA
-			//#pragma multi_compile __ GOOGLEVR
+
+			// TODO: Change XX_OFF to __ for Unity 5.0 and above
+			// this was just added for Unity 4.x compatibility as __ causes
+			// Android and iOS builds to fail the shader
+			#pragma multi_compile STEREO_DEBUG_OFF STEREO_DEBUG
+			#pragma multi_compile APPLY_GAMMA_OFF APPLY_GAMMA
 
             struct appdata
             {
@@ -61,11 +65,7 @@
 			v2f vert(appdata v)
 			{
 				v2f o;
-#if UNITY_VERSION >= 540
-				o.vertex = UnityObjectToClipPos(v.vertex.xyz);
-#else
-				o.vertex = mul(UNITY_MATRIX_MVP, v.vertex);
-#endif
+				o.vertex = UnityObjectToClipPos(v.vertex);
 
 				if (IsStereoEyeLeft(_cameraPosition, UNITY_MATRIX_V[0].xyz))
 				{
